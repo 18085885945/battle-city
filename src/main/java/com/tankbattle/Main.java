@@ -1,4 +1,4 @@
 package com.tankbattle;
 
-public class d {
+public class Main {
 }
