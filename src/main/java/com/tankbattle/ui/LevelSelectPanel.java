@@ -1,6 +1,8 @@
 //关卡选择UI
 package com.tankbattle.ui;
 
+import com.tankbattle.TankBattleGame;
+
 import javax.swing.*;
 import java.awt.*;
 

@@ -1,8 +1,10 @@
-//操作教程UI
+//操作指南UI
+package com.tankbattle.ui;
+
+import com.tankbattle.TankBattleGame;
+
 import javax.swing.*;
 import java.awt.*;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 
 public class HelpPanel extends JPanel {
     private TankBattleGame parent;
