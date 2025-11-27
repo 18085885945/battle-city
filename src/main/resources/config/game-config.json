@@ -1,0 +1,44 @@
+{
+  "targetFps": 60,
+  "virtualWidth": 800,
+  "virtualHeight": 600,
+  "modeConfigs": {
+    "CLASSIC": {
+      "modeType": "CLASSIC",
+      "endless": false,
+      "timeLimitSeconds": 0,
+      "maxEnemyOnField": 4
+    },
+    "ENDLESS": {
+      "modeType": "ENDLESS",
+      "endless": true,
+      "timeLimitSeconds": 0,
+      "maxEnemyOnField": 6
+    },
+    "TIMED": {
+      "modeType": "TIMED",
+      "endless": false,
+      "timeLimitSeconds": 300,
+      "maxEnemyOnField": 5
+    }
+  },
+  "player": {
+    "maxLives": 3,
+    "baseSpeed": 140,
+    "fireCooldownMillis": 300,
+    "armor": 1.0
+  },
+  "enemyWaves": [
+    {
+      "waveIndex": 1,
+      "normalEnemies": 10,
+      "eliteEnemies": 2
+    },
+    {
+      "waveIndex": 2,
+      "normalEnemies": 12,
+      "eliteEnemies": 4
+    }
+  ]
+}
+

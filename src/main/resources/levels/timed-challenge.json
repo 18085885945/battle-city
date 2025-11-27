@@ -1,0 +1,19 @@
+{
+  "id": "timed-challenge",
+  "name": "限时挑战",
+  "width": 800,
+  "height": 600,
+  "base": {
+    "x": 384,
+    "y": 540
+  },
+  "obstacles": [
+    { "type": "STEEL", "x": 256, "y": 224 },
+    { "type": "STEEL", "x": 288, "y": 224 },
+    { "type": "STEEL", "x": 320, "y": 224 },
+    { "type": "STEEL", "x": 352, "y": 224 },
+    { "type": "BRICK", "x": 192, "y": 288 },
+    { "type": "BRICK", "x": 448, "y": 288 }
+  ]
+}
+
