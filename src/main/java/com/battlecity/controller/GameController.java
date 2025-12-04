@@ -30,18 +30,19 @@ public class GameController {
             return;
         }
         
-        // 保存玩家坦克移动前的位置（用于碰撞回退）
+        // 保存玩家坦克移动前的位置（用于碰撞检测）
         if (world.playerTank() != null && world.playerTank().alive()) {
             world.savePlayerPositionBeforeMove();
         }
         
         // 处理输入并获取可能产生的子弹
+        // 注意：processInputs 会移动坦克，但移动后会在 handlePlayerTankCollisions 中检测并回退
         com.battlecity.model.projectile.Bullet newBullet = inputController.processInputs(deltaSeconds);
         if (newBullet != null) {
             world.addPlayerBullet(newBullet);
         }
         
-        // 更新世界（包括碰撞检测）
+        // 更新世界（包括碰撞检测和回退）
         world.update(deltaSeconds);
         
         // 检查游戏失败（基地血量<=0）

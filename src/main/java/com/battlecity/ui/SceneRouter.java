@@ -87,6 +87,10 @@ public class SceneRouter implements SceneRouterFacade {
         HBox hud = new HBox(20);
         hud.setPadding(new Insets(10));
         hud.setStyle("-fx-background-color: rgba(0, 0, 0, 0.7);");
+        // 固定HUD高度，确保场景高度计算正确
+        hud.setMinHeight(40);
+        hud.setPrefHeight(40);
+        hud.setMaxHeight(40);
 
         Label healthLabel = new Label();
         healthLabel.setStyle("-fx-text-fill: white; -fx-font-size: 14px;");
@@ -110,18 +114,29 @@ public class SceneRouter implements SceneRouterFacade {
         hudTimer.start();
 
         // 创建场景并绑定输入
-        Scene gameScene = new Scene(root, context.config().virtualWidth(), context.config().virtualHeight());
+        // 场景高度 = 地图高度 + HUD高度，确保下边界可见
+        double mapWidth = context.config().virtualWidth();
+        double mapHeight = context.config().virtualHeight();
+        double hudHeight = 40; // HUD固定高度
+        Scene gameScene = new Scene(root, mapWidth, mapHeight + hudHeight);
         
         gameScene.setOnKeyPressed(e -> {
-            // 暂停功能（P键或ESC）
+            // 暂停功能（P键或ESC）：切换暂停/继续状态
             if (e.getCode() == KeyCode.P || e.getCode() == KeyCode.ESCAPE) {
                 if (engine != null) {
-                    engine.pause();
+                    if (engine.isPaused()) {
+                        engine.resume();
+                    } else {
+                        engine.pause();
+                    }
                 }
             } else {
-                GameController controller = getController(engine);
-                if (controller != null) {
-                    controller.onKeyPressed(e.getCode());
+                // 只有在未暂停时才处理其他按键输入
+                if (engine == null || !engine.isPaused()) {
+                    GameController controller = getController(engine);
+                    if (controller != null) {
+                        controller.onKeyPressed(e.getCode());
+                    }
                 }
             }
         });

@@ -27,5 +27,9 @@ public class Bullet extends Entity {
     public void destroy() {
         alive = false;
     }
+    
+    public Vector2D direction() {
+        return direction;
+    }
 }
 

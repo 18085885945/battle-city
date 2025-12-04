@@ -12,6 +12,7 @@ import com.battlecity.model.tank.TankAttributes;
 import com.battlecity.model.world.Base;
 import com.battlecity.model.world.BrickWall;
 import com.battlecity.model.world.Obstacle;
+import com.battlecity.model.world.River;
 import com.battlecity.model.world.SteelWall;
 import com.battlecity.model.world.TerrainTile;
 import com.battlecity.physics.CollisionDetector;
@@ -26,7 +27,7 @@ import java.util.List;
 public class GameWorld {
 
     private final LevelDefinition levelDefinition;
-    private final PlayerTank playerTank;
+    private PlayerTank playerTank; // 改为非final，因为需要在初始化时设置
     private final Base base;
     private final List<Obstacle> obstacles = new ArrayList<>();
     private final List<TerrainTile> terrains = new ArrayList<>();
@@ -42,34 +43,203 @@ public class GameWorld {
     }
 
     public static GameWorld initialWorld(LevelDefinition definition) {
-        Base base = new Base(new Vector2D(definition.base().x(), definition.base().y()), new Size(32, 32));
+        // 基地位置：底部与地图下边界对齐
+        // 调整基地核心大小为30x30，使得砖块可以正好与下边缘相接
+        double baseSize = 30; // 基地核心大小
+        double baseY = definition.height() - baseSize; // 基地底部与地图下边界对齐
+        double baseX = definition.base().x();
+        Base base = new Base(new Vector2D(baseX, baseY), new Size(baseSize, baseSize));
         
-        // 玩家坦克生成在基地上方两个砖块长度的位置（砖块32x32，所以是64像素）
-        double playerTankY = definition.base().y() - 64; // 基地上方64像素（两个砖块长度）
-        double playerTankX = definition.base().x(); // 与基地x坐标对齐
+        GameWorld world = new GameWorld(definition, null, base); // 先创建world，稍后添加坦克
         
-        PlayerTank playerTank = new PlayerTank(
-                new Vector2D(playerTankX, playerTankY),
-                new TankAttributes(140, 1.0, 300)
-        );
+        // 在基地周围生成一圈砖块，距离基地一个砖块，砖块与下边缘相接
+        world.buildBaseProtectionWalls(baseX, baseY, baseSize);
         
-        GameWorld world = new GameWorld(definition, playerTank, base);
+        // 构建其他障碍物
         world.buildObstacles(definition.obstacles());
+        
+        // 玩家坦克在砖块外随机生成，不与砖块重叠
+        PlayerTank playerTank = world.generatePlayerTankPosition(definition);
+        world.playerTank = playerTank; // 设置玩家坦克
+        
         // 初始化玩家坦克位置记录
         world.lastPlayerPosition = playerTank.position();
         return world;
+    }
+    
+    /**
+     * 在基地周围生成一圈砖块，距离基地一个砖块，砖块与下边缘相接且每个砖块相连
+     * 布局：
+     *   砖砖砖砖砖  (上方5个砖块)
+     *   砖      砖  (左侧上方 + 右侧上方)
+     *   砖  基  砖  (左侧中间 + 基地核心 + 右侧中间)
+     *   砖      砖  (左侧下方 + 右侧下方，与下边缘相接)
+     * 
+     * 注意：每个砖块是独立的，与基地保持一个砖块的距离，砖块之间相连无间隙
+     */
+    private void buildBaseProtectionWalls(double baseX, double baseY, double baseSize) {
+        double brickSize = 15; // 砖块大小（15x15）
+        double gap = 15; // 基地与砖块的距离（一个砖块宽度）
+        
+        // 基地范围：左上角(baseX, baseY)，大小baseSize x baseSize
+        // 基地右边界：baseX + baseSize
+        // 基地下边界：baseY + baseSize（与地图下边界对齐）
+        
+        // 根据实际尺寸动态计算上方砖块数量
+        // 覆盖范围：从 baseX - gap 到 baseX + baseSize + gap
+        // 总宽度 = baseSize + 2 * gap
+        double topStartX = baseX - gap;
+        double topEndX = baseX + baseSize + gap;
+        double topWidth = topEndX - topStartX;
+        int topBrickCount = (int)Math.ceil(topWidth / brickSize);
+        double topY = baseY - gap - brickSize; // 砖块顶部y坐标
+        
+        // 上方砖块：每个砖块15宽，相连无间隙
+        for (int i = 0; i < topBrickCount; i++) {
+            double x = topStartX + i * brickSize;
+            obstacles.add(new BrickWall(new Vector2D(x, topY), new Size(brickSize, brickSize)));
+        }
+        
+        // 根据实际尺寸动态计算左侧砖块数量
+        // 覆盖范围：从上方砖块位置（topY）到地图下边缘（baseY + baseSize）
+        // 总高度 = (baseY + baseSize) - topY = baseSize + gap + brickSize
+        double leftX = baseX - gap - brickSize; // 砖块左边界x坐标
+        double leftStartY = topY; // 从上方砖块位置开始
+        double leftEndY = baseY + baseSize; // 到地图下边缘
+        double leftHeight = leftEndY - leftStartY;
+        int leftBrickCount = (int)Math.ceil(leftHeight / brickSize);
+        
+        // 左侧砖块：每个砖块15高，相连无间隙，延伸到下边缘
+        for (int i = 0; i < leftBrickCount; i++) {
+            double y = leftStartY + i * brickSize;
+            obstacles.add(new BrickWall(new Vector2D(leftX, y), new Size(brickSize, brickSize)));
+        }
+        
+        // 右侧砖块：与左侧对称，数量相同
+        double rightX = baseX + baseSize + gap; // 砖块左边界x坐标
+        for (int i = 0; i < leftBrickCount; i++) {
+            double y = leftStartY + i * brickSize;
+            obstacles.add(new BrickWall(new Vector2D(rightX, y), new Size(brickSize, brickSize)));
+        }
+    }
+    
+    /**
+     * 生成玩家坦克位置，在砖块外随机生成，不与砖块重叠
+     */
+    private PlayerTank generatePlayerTankPosition(LevelDefinition definition) {
+        java.util.Random random = new java.util.Random();
+        double tankSize = 26; // 坦克大小（26x26）
+        double baseX = definition.base().x();
+        double baseSize = 30; // 基地核心大小
+        double baseY = definition.height() - baseSize;
+        
+        // 砖块保护圈的范围（砖块现在是15x15）
+        double brickSize = 15;
+        double gap = 15;
+        double wallLeft = baseX - gap - brickSize; // baseX - 30
+        double wallRight = baseX + baseSize + gap; // baseX + 45
+        
+        // 坦克底部与地图下边缘对齐：y坐标固定为 definition.height() - tankSize
+        double y = definition.height() - tankSize;
+        
+        // 尝试生成位置，最多尝试200次
+        for (int attempt = 0; attempt < 200; attempt++) {
+            double x;
+            
+            // 只在x轴上随机选择位置，避开基地区域
+            // 策略：随机选择左侧或右侧
+            if (random.nextBoolean()) {
+                // 左侧区域：x < wallLeft
+                if (wallLeft - tankSize > 0) {
+                    x = random.nextDouble() * (wallLeft - tankSize);
+                } else {
+                    // 左侧空间不足，尝试右侧
+                    double rightStartX = Math.max(wallRight + 5, 0);
+                    if (rightStartX + tankSize > definition.width()) {
+                        continue; // 右侧也没有足够空间
+                    }
+                    x = rightStartX + random.nextDouble() * (definition.width() - rightStartX - tankSize);
+                }
+            } else {
+                // 右侧区域：x > wallRight
+                double rightStartX = Math.max(wallRight + 5, 0);
+                if (rightStartX + tankSize > definition.width()) {
+                    // 右侧空间不足，尝试左侧
+                    if (wallLeft - tankSize > 0) {
+                        x = random.nextDouble() * (wallLeft - tankSize);
+                    } else {
+                        continue; // 左右都没有足够空间
+                    }
+                } else {
+                    x = rightStartX + random.nextDouble() * (definition.width() - rightStartX - tankSize);
+                }
+            }
+            
+            // 确保x在边界内
+            if (x < 0 || x + tankSize > definition.width()) {
+                continue;
+            }
+            
+            // 检查是否与基地区域重叠（包括基地核心和保护砖块）
+            // 基地区域：x在wallLeft到wallRight之间
+            if (x < wallRight && x + tankSize > wallLeft) {
+                continue; // 与基地区域重叠，跳过
+            }
+            
+            // 检查是否与障碍物重叠
+            Vector2D tankPos = new Vector2D(x, y);
+            PlayerTank testTank = new PlayerTank(tankPos, new TankAttributes(140, 1.0, 300));
+            boolean overlaps = false;
+            
+            for (Obstacle obstacle : obstacles) {
+                if (collisionDetector.collide(testTank, obstacle)) {
+                    overlaps = true;
+                    break;
+                }
+            }
+            
+            // 检查是否与基地核心重叠
+            if (!overlaps && collisionDetector.collide(testTank, base)) {
+                overlaps = true;
+            }
+            
+            if (!overlaps) {
+                return testTank;
+            }
+        }
+        
+        // 如果200次都失败，使用默认位置：地图左下角或右下角，避开基地区域
+        double defaultX = 10; // 左侧留出10像素
+        // 如果默认位置在基地区域内，调整到右侧
+        if (defaultX < wallRight && defaultX + tankSize > wallLeft) {
+            defaultX = Math.max(wallRight + 10, 0);
+            // 如果右侧也没有空间，尝试左侧更靠左的位置
+            if (defaultX + tankSize > definition.width()) {
+                defaultX = Math.max(0, wallLeft - tankSize - 10);
+            }
+        }
+        double defaultY = definition.height() - tankSize; // 与下边缘对齐
+        return new PlayerTank(new Vector2D(defaultX, defaultY), new TankAttributes(140, 1.0, 300));
     }
 
     private void buildObstacles(List<ObstacleDefinition> definitions) {
         for (ObstacleDefinition definition : definitions) {
             Vector2D pos = new Vector2D(definition.x(), definition.y());
-            Size tileSize = new Size(32, 32);
+            // 砖块和铁块：每个砖块17x17，使得4个砖块（2x2）的总大小34x34，略大于坦克（32x32）
+            Size brickSteelSize = new Size(17, 17);
+            // 水路和草丛：34x34，比坦克（32x32）大一点
+            Size terrainSize = new Size(34, 34);
+            
             if (definition.type() == TileType.BRICK) {
-                obstacles.add(new BrickWall(pos, tileSize));
+                obstacles.add(new BrickWall(pos, brickSteelSize));
             } else if (definition.type() == TileType.STEEL) {
-                obstacles.add(new SteelWall(pos, tileSize));
-            } else if (definition.type() == TileType.RIVER || definition.type() == TileType.GRASS) {
-                terrains.add(new TerrainTile(definition.type(), pos, tileSize));
+                obstacles.add(new SteelWall(pos, brickSteelSize));
+            } else if (definition.type() == TileType.RIVER) {
+                // 水路作为障碍物，阻挡坦克移动
+                obstacles.add(new River(pos, terrainSize));
+            } else if (definition.type() == TileType.GRASS) {
+                // 草丛作为地形，不阻挡移动，但会遮住坦克
+                terrains.add(new TerrainTile(definition.type(), pos, terrainSize));
             }
         }
     }
@@ -240,7 +410,12 @@ public class GameWorld {
         Vector2D currentPos = playerTank.position();
         Vector2D originalPos = lastPlayerPosition != null ? lastPlayerPosition : currentPos;
 
-        // 玩家坦克与障碍物碰撞
+        // 如果当前位置与移动前位置相同，说明没有移动，不需要检测
+        if (currentPos.equals(originalPos)) {
+            return;
+        }
+
+        // 玩家坦克与障碍物碰撞 - 直接阻止，不移动
         for (Obstacle obstacle : obstacles) {
             if (collisionDetector.collide(playerTank, obstacle)) {
                 playerTank.setPosition(originalPos);
@@ -249,14 +424,14 @@ public class GameWorld {
             }
         }
 
-        // 玩家坦克与基地碰撞
+        // 玩家坦克与基地碰撞 - 直接阻止，不移动
         if (collisionDetector.collide(playerTank, base)) {
             playerTank.setPosition(originalPos);
             lastPlayerPosition = originalPos;
             return;
         }
 
-        // 玩家坦克与敌方坦克碰撞
+        // 玩家坦克与敌方坦克碰撞 - 直接阻止，不移动，但扣血
         for (EnemyTank enemy : enemyTanks) {
             if (enemy.alive() && collisionDetector.collide(playerTank, enemy)) {
                 playerTank.setPosition(originalPos);
@@ -267,7 +442,7 @@ public class GameWorld {
             }
         }
 
-        // 边界检测（确保不能穿过任何边界，包括下边缘）
+        // 边界检测（确保不能穿过任何边界，包括下边缘）- 直接阻止，不移动
         if (playerTank.left() < 0 || playerTank.right() > levelDefinition.width()
                 || playerTank.top() < 0 || playerTank.bottom() > levelDefinition.height()) {
             playerTank.setPosition(originalPos);

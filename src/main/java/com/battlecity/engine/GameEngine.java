@@ -54,6 +54,10 @@ public class GameEngine {
         stateManager.resume();
     }
 
+    public boolean isPaused() {
+        return stateManager.isPaused();
+    }
+
     public void shutdown() {
         loop.stop();
     }

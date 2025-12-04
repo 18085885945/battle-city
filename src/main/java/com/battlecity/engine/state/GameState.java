@@ -41,5 +41,9 @@ public class GameState {
     public void resume() {
         this.paused = false;
     }
+
+    public boolean isPaused() {
+        return paused;
+    }
 }
 

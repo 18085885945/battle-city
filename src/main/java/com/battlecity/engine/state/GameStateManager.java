@@ -35,5 +35,9 @@ public class GameStateManager {
     public GameState current() {
         return current;
     }
+
+    public boolean isPaused() {
+        return current != null && current.isPaused();
+    }
 }
 
