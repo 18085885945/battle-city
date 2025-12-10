@@ -101,17 +101,25 @@ public class SceneRouter implements SceneRouterFacade {
         hud.getChildren().addAll(healthLabel, enemiesLabel);
         root.setTop(hud);
 
-        // 实时更新HUD
-        AnimationTimer hudTimer = new AnimationTimer() {
+        // 实时更新HUD并检查游戏失败
+        final AnimationTimer[] hudTimerRef = new AnimationTimer[1];
+        hudTimerRef[0] = new AnimationTimer() {
             @Override
             public void handle(long now) {
                 if (world != null && world.playerTank() != null) {
                     healthLabel.setText("生命值: " + world.playerTank().health());
                     enemiesLabel.setText("敌人: " + world.enemyTanks().size());
+                    
+                    // 检查游戏是否失败
+                    if (world.isGameOver()) {
+                        hudTimerRef[0].stop();
+                        engine.pause();
+                        showGameOverScene(engine);
+                    }
                 }
             }
         };
-        hudTimer.start();
+        hudTimerRef[0].start();
 
         // 创建场景并绑定输入
         // 场景高度 = 地图高度 + HUD高度，确保下边界可见
@@ -174,6 +182,62 @@ public class SceneRouter implements SceneRouterFacade {
 
     public Scene getCurrentGameScene() {
         return currentGameScene;
+    }
+    
+    /**
+     * 显示游戏失败界面
+     */
+    private void showGameOverScene(GameEngine engine) {
+        GameWorld world = engine.getWorld();
+        if (world == null) {
+            return;
+        }
+        
+        BorderPane root = new BorderPane();
+        root.setPadding(new Insets(40));
+        root.setStyle("-fx-background-color: rgba(0, 0, 0, 0.9);");
+        
+        VBox content = new VBox(20);
+        content.setAlignment(Pos.CENTER);
+        
+        Label gameOverLabel = new Label("游戏失败");
+        gameOverLabel.setStyle("-fx-text-fill: red; -fx-font-size: 48px; -fx-font-weight: bold;");
+        
+        // 根据失败原因显示不同的消息
+        String reason = world.getGameOverReason();
+        String messageText;
+        if ("BASE".equals(reason)) {
+            messageText = "你的基地被毁了";
+        } else if ("TANK".equals(reason)) {
+            messageText = "你的坦克被毁了";
+        } else {
+            messageText = "游戏失败";
+        }
+        
+        Label messageLabel = new Label(messageText);
+        messageLabel.setStyle("-fx-text-fill: white; -fx-font-size: 24px;");
+        
+        Button returnBtn = new Button("返回主菜单");
+        returnBtn.setStyle("-fx-font-size: 18px; -fx-padding: 10px 20px;");
+        returnBtn.setOnAction(e -> {
+            if (engine != null) {
+                engine.shutdown();
+            }
+            Scene mainMenuScene = buildMainMenuScene(engine);
+            if (sceneChangeCallback != null) {
+                sceneChangeCallback.accept(mainMenuScene);
+            }
+        });
+        
+        content.getChildren().addAll(gameOverLabel, messageLabel, returnBtn);
+        root.setCenter(content);
+        
+        Scene gameOverScene = new Scene(root, context.config().virtualWidth(), context.config().virtualHeight());
+        
+        // 触发场景切换回调
+        if (sceneChangeCallback != null) {
+            sceneChangeCallback.accept(gameOverScene);
+        }
     }
 }
 

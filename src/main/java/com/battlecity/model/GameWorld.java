@@ -35,6 +35,13 @@ public class GameWorld {
     private final List<Bullet> enemyBullets = new ArrayList<>();
     private final List<EnemyTank> enemyTanks = new ArrayList<>();
     private final CollisionDetector collisionDetector = new CollisionDetector();
+    private final com.battlecity.ai.EnemyAIController aiController = new com.battlecity.ai.EnemyAIController();
+    
+    // 敌对坦克生成相关
+    private static final int MAX_ENEMY_ON_FIELD = 6; // 场上最大敌对坦克数量
+    private static final double ENEMY_SPAWN_INTERVAL_NORMAL = 5.0; // 正常生成间隔（秒）
+    private static final double ENEMY_SPAWN_INTERVAL_FORCE = 20.0; // 强制生成间隔（秒）
+    private double enemySpawnTimer = 0.0; // 生成计时器
 
     private GameWorld(LevelDefinition levelDefinition, PlayerTank playerTank, Base base) {
         this.levelDefinition = levelDefinition;
@@ -188,7 +195,8 @@ public class GameWorld {
             
             // 检查是否与障碍物重叠
             Vector2D tankPos = new Vector2D(x, y);
-            PlayerTank testTank = new PlayerTank(tankPos, new TankAttributes(140, 1.0, 300));
+            // 玩家坦克：速度140，攻速1秒3发（333ms冷却）
+            PlayerTank testTank = new PlayerTank(tankPos, new TankAttributes(140, 1.0, 333));
             boolean overlaps = false;
             
             for (Obstacle obstacle : obstacles) {
@@ -219,7 +227,95 @@ public class GameWorld {
             }
         }
         double defaultY = definition.height() - tankSize; // 与下边缘对齐
-        return new PlayerTank(new Vector2D(defaultX, defaultY), new TankAttributes(140, 1.0, 300));
+        // 玩家坦克：速度140，攻速1秒3发（333ms冷却）
+        return new PlayerTank(new Vector2D(defaultX, defaultY), new TankAttributes(140, 1.0, 333));
+    }
+
+    /**
+     * 生成敌对坦克的生成位置
+     * 敌对坦克只能从上边缘和离上边缘一个基地的高度的左右边缘出现
+     * 
+     * @param definition 关卡定义
+     * @param tier 敌对坦克等级
+     * @return 生成的敌对坦克，如果无法生成则返回null
+     */
+    public EnemyTank generateEnemyTankPosition(LevelDefinition definition, EnemyTier tier) {
+        java.util.Random random = new java.util.Random();
+        double tankSize = 26; // 坦克大小（26x26）
+        double baseSize = 30; // 基地核心大小（用于确定左右边缘的y坐标）
+        
+        // 生成位置选项：
+        // 1. 从上边缘：y = 0，x 随机（在边界内）
+        // 2. 从左边缘：y = baseSize，x = 0
+        // 3. 从右边缘：y = baseSize，x = definition.width() - tankSize
+        
+        // 尝试生成位置，最多尝试200次
+        for (int attempt = 0; attempt < 200; attempt++) {
+            double x, y;
+            int spawnType = random.nextInt(3); // 0: 上边缘, 1: 左边缘, 2: 右边缘
+            
+            if (spawnType == 0) {
+                // 从上边缘生成：y = 0，x 随机
+                y = 0;
+                x = random.nextDouble() * (definition.width() - tankSize);
+            } else if (spawnType == 1) {
+                // 从左边缘生成：y = baseSize，x = 0
+                y = baseSize;
+                x = 0;
+            } else {
+                // 从右边缘生成：y = baseSize，x = definition.width() - tankSize
+                y = baseSize;
+                x = definition.width() - tankSize;
+            }
+            
+            // 确保在边界内
+            if (x < 0 || x + tankSize > definition.width() || y < 0 || y + tankSize > definition.height()) {
+                continue;
+            }
+            
+            // 检查是否与障碍物重叠
+            Vector2D tankPos = new Vector2D(x, y);
+            // 使用默认的敌对坦克属性（可以根据tier调整）
+            // 敌方坦克：速度98（玩家速度140的70%），攻速1秒1发（1000ms冷却）
+            TankAttributes attributes = new TankAttributes(98, 1.0, 1000); // 速度98，护甲1.0，开火冷却1000ms
+            EnemyTank testTank = new EnemyTank(tankPos, attributes, tier);
+            boolean overlaps = false;
+            
+            for (Obstacle obstacle : obstacles) {
+                if (collisionDetector.collide(testTank, obstacle)) {
+                    overlaps = true;
+                    break;
+                }
+            }
+            
+            // 检查是否与基地核心重叠
+            if (!overlaps && collisionDetector.collide(testTank, base)) {
+                overlaps = true;
+            }
+            
+            // 检查是否与玩家坦克重叠
+            if (!overlaps && playerTank != null && playerTank.alive() && 
+                collisionDetector.collide(testTank, playerTank)) {
+                overlaps = true;
+            }
+            
+            // 检查是否与其他敌对坦克重叠
+            if (!overlaps) {
+                for (EnemyTank other : enemyTanks) {
+                    if (other.alive() && collisionDetector.collide(testTank, other)) {
+                        overlaps = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (!overlaps) {
+                return testTank;
+            }
+        }
+        
+        // 如果200次都失败，返回null（调用者可以稍后重试）
+        return null;
     }
 
     private void buildObstacles(List<ObstacleDefinition> definitions) {
@@ -264,6 +360,34 @@ public class GameWorld {
             }
             enemy.tick(deltaSeconds);
         }
+        
+        // 更新敌方坦克AI
+        aiController.update(this, enemyTanks, deltaSeconds);
+        
+        // 生成新的敌对坦克
+        enemySpawnTimer += deltaSeconds;
+        
+        // 生成条件：
+        // 1. 敌方坦克数 < 6 且 距离上次生成 >= 5秒
+        // 2. 或者 距离上次生成 >= 20秒（强制生成）
+        boolean shouldSpawn = false;
+        if (enemyTanks.size() < MAX_ENEMY_ON_FIELD && enemySpawnTimer >= ENEMY_SPAWN_INTERVAL_NORMAL) {
+            shouldSpawn = true;
+        } else if (enemySpawnTimer >= ENEMY_SPAWN_INTERVAL_FORCE) {
+            shouldSpawn = true;
+        }
+        
+        if (shouldSpawn) {
+            // 随机选择普通或精英坦克（80%概率普通，20%概率精英）
+            EnemyTier tier = Math.random() < 0.8 ? EnemyTier.NORMAL : EnemyTier.ELITE;
+            EnemyTank newEnemy = generateEnemyTankPosition(levelDefinition, tier);
+            if (newEnemy != null) {
+                enemyTanks.add(newEnemy);
+                lastEnemyPositions.put(newEnemy, newEnemy.position());
+                enemySpawnTimer = 0.0; // 重置计时器
+            }
+            // 如果生成失败（位置被占用），不重置计时器，继续累积时间
+        }
 
         // 更新子弹并检测与障碍物的碰撞
         Iterator<Bullet> iterator = playerBullets.iterator();
@@ -271,6 +395,20 @@ public class GameWorld {
             Bullet bullet = iterator.next();
             bullet.update(deltaSeconds);
             if (!bullet.alive() || isOutOfBounds(bullet)) {
+                iterator.remove();
+                continue;
+            }
+            // 检测玩家子弹与敌方坦克的碰撞
+            boolean hitEnemy = false;
+            for (EnemyTank enemy : enemyTanks) {
+                if (enemy.alive() && collisionDetector.collide(bullet, enemy)) {
+                    enemy.takeDamage(1);
+                    bullet.destroy();
+                    hitEnemy = true;
+                    break;
+                }
+            }
+            if (hitEnemy) {
                 iterator.remove();
                 continue;
             }
@@ -292,6 +430,13 @@ public class GameWorld {
                 iterator.remove();
                 continue;
             }
+            // 检测敌方子弹与玩家坦克的碰撞
+            if (playerTank != null && playerTank.alive() && collisionDetector.collide(bullet, playerTank)) {
+                playerTank.takeDamage(1);
+                bullet.destroy();
+                iterator.remove();
+                continue;
+            }
             // 检测敌方子弹与障碍物的碰撞
             if (handleBulletObstacleCollision(bullet, false)) {
                 iterator.remove();
@@ -308,11 +453,26 @@ public class GameWorld {
     }
     
     /**
-     * 检查游戏是否失败（基地血量<=0）
+     * 检查游戏是否失败（基地血量<=0 或 玩家坦克死亡）
      * @return 如果游戏失败返回true
      */
     public boolean isGameOver() {
-        return !base.alive() || base.health() <= 0;
+        return !base.alive() || base.health() <= 0 || 
+               (playerTank != null && !playerTank.alive());
+    }
+    
+    /**
+     * 获取游戏失败原因
+     * @return 失败原因字符串："BASE" 表示基地被毁，"TANK" 表示坦克被毁
+     */
+    public String getGameOverReason() {
+        if (!base.alive() || base.health() <= 0) {
+            return "BASE";
+        }
+        if (playerTank != null && !playerTank.alive()) {
+            return "TANK";
+        }
+        return "UNKNOWN";
     }
     
     private void checkGameOver() {
@@ -383,7 +543,13 @@ public class GameWorld {
         return false;
     }
 
+    // 用于记录本帧已处理的碰撞，避免重复扣血
+    private final java.util.Set<EnemyTank> processedCollisionsThisFrame = new java.util.HashSet<>();
+    
     private void handleCollisions() {
+        // 清空本帧碰撞记录
+        processedCollisionsThisFrame.clear();
+        
         // 玩家坦克碰撞检测
         if (playerTank.alive()) {
             handlePlayerTankCollisions();
@@ -431,13 +597,14 @@ public class GameWorld {
             return;
         }
 
-        // 玩家坦克与敌方坦克碰撞 - 直接阻止，不移动，但扣血
+        // 玩家坦克与敌方坦克碰撞 - 双方都停下，不扣血
         for (EnemyTank enemy : enemyTanks) {
             if (enemy.alive() && collisionDetector.collide(playerTank, enemy)) {
                 playerTank.setPosition(originalPos);
                 lastPlayerPosition = originalPos;
-                // 玩家坦克碰到敌方坦克时扣血
-                playerTank.takeDamage(1);
+                // 双方都停下，不扣血
+                // 标记这个碰撞已处理，避免在敌方坦克碰撞检测中重复处理
+                processedCollisionsThisFrame.add(enemy);
                 return;
             }
         }
@@ -477,10 +644,15 @@ public class GameWorld {
             return;
         }
 
-        // 敌方坦克与玩家坦克碰撞（不扣血，只阻挡）
+        // 敌方坦克与玩家坦克碰撞 - 双方都停下，不扣血
         if (playerTank.alive() && collisionDetector.collide(enemy, playerTank)) {
             enemy.setPosition(originalPos);
             lastEnemyPositions.put(enemy, originalPos);
+            // 双方都停下，不扣血
+            // 如果这个碰撞还没有处理过，标记已处理
+            if (!processedCollisionsThisFrame.contains(enemy)) {
+                processedCollisionsThisFrame.add(enemy);
+            }
             return;
         }
 
@@ -511,6 +683,14 @@ public class GameWorld {
 
     public LevelDefinition definition() {
         return levelDefinition;
+    }
+    
+    public LevelDefinition levelDefinition() {
+        return levelDefinition;
+    }
+    
+    public CollisionDetector collisionDetector() {
+        return collisionDetector;
     }
 
     public List<Obstacle> obstacles() {
