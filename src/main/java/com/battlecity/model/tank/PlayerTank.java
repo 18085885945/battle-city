@@ -9,6 +9,8 @@ public class PlayerTank extends Tank {
     public PlayerTank(Vector2D position, TankAttributes attributes) {
         // 调整坦克大小为26x26，使得子弹能够击中底部砖块
         super(position, new Size(26, 26), TankType.PLAYER, attributes);
+        // 设置玩家坦克初始生命值为5
+        setHealth(5);
     }
 
     public void moveUp(double deltaSeconds) {

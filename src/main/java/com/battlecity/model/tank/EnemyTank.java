@@ -12,6 +12,8 @@ public class EnemyTank extends Tank {
         // 调整坦克大小为26x26，与玩家坦克保持一致
         super(position, new Size(26, 26), tier.asTankType(), attributes);
         this.tier = tier;
+        // 设置敌方坦克初始生命值为1
+        setHealth(1);
     }
 
     @Override
@@ -31,6 +33,34 @@ public class EnemyTank extends Tank {
 
     public EnemyTier tier() {
         return tier;
+    }
+    
+    /**
+     * 向上移动（供AI使用）
+     */
+    public void moveUp(double deltaSeconds) {
+        move(new Vector2D(0, -1), deltaSeconds);
+    }
+    
+    /**
+     * 向下移动（供AI使用）
+     */
+    public void moveDown(double deltaSeconds) {
+        move(new Vector2D(0, 1), deltaSeconds);
+    }
+    
+    /**
+     * 向左移动（供AI使用）
+     */
+    public void moveLeft(double deltaSeconds) {
+        move(new Vector2D(-1, 0), deltaSeconds);
+    }
+    
+    /**
+     * 向右移动（供AI使用）
+     */
+    public void moveRight(double deltaSeconds) {
+        move(new Vector2D(1, 0), deltaSeconds);
     }
 }
 

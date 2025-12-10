@@ -24,5 +24,9 @@ public record Vector2D(double x, double y) {
         }
         return new Vector2D(x / len, y / len);
     }
+    
+    public Vector2D subtract(Vector2D other) {
+        return new Vector2D(x - other.x, y - other.y);
+    }
 }
 

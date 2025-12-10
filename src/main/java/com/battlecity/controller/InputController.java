@@ -101,13 +101,16 @@ public class InputController {
             }
         }
         
-        // 攻击控制：空格或Enter（只在刚按下时触发一次）
-        boolean firePressed = (justPressedKeys.contains(KeyCode.SPACE) || justPressedKeys.contains(KeyCode.ENTER))
-                && !fireProcessed;
+        // 攻击控制：空格或Enter
+        // 长按攻击键则以最大攻速射击（1秒3发）
+        boolean fireKeyPressed = pressedKeys.contains(KeyCode.SPACE) || pressedKeys.contains(KeyCode.ENTER);
         
-        if (firePressed) {
-            fireProcessed = true; // 标记已处理
-            return playerTank.tryFire();
+        if (fireKeyPressed) {
+            // 长按攻击键，以最大攻速射击
+            com.battlecity.model.projectile.Bullet bullet = playerTank.tryFire();
+            if (bullet != null) {
+                return bullet;
+            }
         }
         
         // 清除刚按下的标记（如果按键已释放）
