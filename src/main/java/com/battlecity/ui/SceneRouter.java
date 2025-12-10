@@ -1,10 +1,10 @@
 package com.battlecity.ui;
 
 import com.battlecity.controller.GameController;
-import com.battlecity.controller.InputController;
 import com.battlecity.controller.SceneRouterFacade;
 import com.battlecity.engine.GameContext;
 import com.battlecity.engine.GameEngine;
+import com.battlecity.map.LevelDefinition;
 import com.battlecity.model.GameWorld;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
@@ -16,7 +16,10 @@ import javafx.scene.layout.BorderPane;
 import javafx.animation.AnimationTimer;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
+import javafx.scene.layout.Priority;
+import javafx.scene.control.ScrollPane;
 import java.util.function.Consumer;
+import java.util.List;
 
 /**
  * 简易场景路由，后续可扩展不同 Scene。
@@ -59,7 +62,15 @@ public class SceneRouter implements SceneRouterFacade {
             switchToGameScene(engine);
         });
 
-        VBox menu = new VBox(12, title, classicBtn, endlessBtn, timedBtn);
+        Button freeSelectBtn = new Button("自由选关");
+        freeSelectBtn.setOnAction(e -> {
+            Scene selectScene = buildLevelSelectScene(engine);
+            if (sceneChangeCallback != null) {
+                sceneChangeCallback.accept(selectScene);
+            }
+        });
+
+        VBox menu = new VBox(12, title, classicBtn, endlessBtn, timedBtn, freeSelectBtn);
         menu.setAlignment(Pos.CENTER);
         root.setCenter(menu);
 
@@ -238,6 +249,65 @@ public class SceneRouter implements SceneRouterFacade {
         if (sceneChangeCallback != null) {
             sceneChangeCallback.accept(gameOverScene);
         }
+    }
+
+    /**
+     * 自由选关界面
+     */
+    private Scene buildLevelSelectScene(GameEngine engine) {
+        BorderPane root = new BorderPane();
+        root.setPadding(new Insets(16));
+
+        Label title = new Label("自由选关");
+        title.getStyleClass().add("title");
+        BorderPane.setAlignment(title, Pos.CENTER);
+        root.setTop(title);
+
+        VBox listBox = new VBox(8);
+        listBox.setFillWidth(true);
+
+        List<LevelDefinition> levels = context.levelRepository().allLevels();
+        if (levels == null || levels.isEmpty()) {
+            Label empty = new Label("未找到关卡文件，请检查 resources/levels 目录。");
+            empty.setStyle("-fx-text-fill: red;");
+            listBox.getChildren().add(empty);
+        } else {
+            for (LevelDefinition level : levels) {
+                Button levelBtn = new Button(level.name() + " (" + level.id() + ")");
+                levelBtn.setMaxWidth(Double.MAX_VALUE);
+                levelBtn.setOnAction(e -> {
+                    engine.startCustomLevel(level);
+                    switchToGameScene(engine);
+                });
+
+                Label meta = new Label(level.width() + " x " + level.height());
+                meta.setStyle("-fx-text-fill: #ccc;");
+
+                HBox row = new HBox(10, levelBtn, meta);
+                row.setAlignment(Pos.CENTER_LEFT);
+                HBox.setHgrow(levelBtn, Priority.ALWAYS);
+                listBox.getChildren().add(row);
+            }
+        }
+
+        ScrollPane scrollPane = new ScrollPane(listBox);
+        scrollPane.setFitToWidth(true);
+        root.setCenter(scrollPane);
+
+        Button backBtn = new Button("返回主菜单");
+        backBtn.setOnAction(e -> {
+            Scene menuScene = buildMainMenuScene(engine);
+            if (sceneChangeCallback != null) {
+                sceneChangeCallback.accept(menuScene);
+            }
+        });
+        BorderPane.setAlignment(backBtn, Pos.CENTER);
+        BorderPane.setMargin(backBtn, new Insets(12, 0, 0, 0));
+        root.setBottom(backBtn);
+
+        Scene scene = new Scene(root, context.config().virtualWidth(), context.config().virtualHeight());
+        scene.getStylesheets().add(getClass().getResource("/styles/main.css").toExternalForm());
+        return scene;
     }
 }
 

@@ -9,5 +9,10 @@ public interface LevelRepository {
     LevelDefinition endlessPrototype();
 
     LevelDefinition timedPrototype();
+
+    /**
+     * 返回所有可用关卡，便于自由选关。
+     */
+    java.util.List<LevelDefinition> allLevels();
 }
 

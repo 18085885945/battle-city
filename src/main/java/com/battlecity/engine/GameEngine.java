@@ -3,6 +3,7 @@ package com.battlecity.engine;
 import com.battlecity.controller.GameController;
 import com.battlecity.engine.loop.GameLoop;
 import com.battlecity.engine.state.GameStateManager;
+import com.battlecity.map.LevelDefinition;
 import com.battlecity.model.GameWorld;
 
 /**
@@ -24,22 +25,24 @@ public class GameEngine {
     }
 
     public void startClassicMode() {
-        world = GameWorld.initialWorld(context.levelRepository().defaultClassic());
-        stateManager.startClassic(world);
-        controller.bindWorld(world);
-        loop.start();
+        startCustomLevel(context.levelRepository().defaultClassic());
     }
 
     public void startEndlessMode() {
-        world = GameWorld.initialWorld(context.levelRepository().endlessPrototype());
-        stateManager.startEndless(world);
-        controller.bindWorld(world);
-        loop.start();
+        startCustomLevel(context.levelRepository().endlessPrototype());
     }
 
     public void startTimedMode() {
-        world = GameWorld.initialWorld(context.levelRepository().timedPrototype());
-        stateManager.startTimed(world);
+        startCustomLevel(context.levelRepository().timedPrototype());
+    }
+
+    public void startCustomLevel(LevelDefinition levelDefinition) {
+        if (levelDefinition == null) {
+            throw new IllegalArgumentException("关卡定义为空");
+        }
+        world = GameWorld.initialWorld(levelDefinition);
+        // 自由选关按经典流程进入
+        stateManager.startClassic(world);
         controller.bindWorld(world);
         loop.start();
     }
