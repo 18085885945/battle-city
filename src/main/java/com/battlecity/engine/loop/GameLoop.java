@@ -59,6 +59,7 @@ public class GameLoop {
             timer.stop();
             timer = null;
         }
+        paused = false; // 确保停止游戏循环时将暂停状态重置为false
     }
 }
 

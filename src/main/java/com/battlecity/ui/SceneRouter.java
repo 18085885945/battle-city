@@ -9,10 +9,13 @@ import com.battlecity.model.GameWorld;
 import javafx.geometry.Insets;
 import javafx.geometry.Pos;
 import javafx.scene.Scene;
+import javafx.scene.canvas.Canvas;
+import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.input.KeyCode;
 import javafx.scene.layout.BorderPane;
+import javafx.scene.paint.Color;
 import javafx.animation.AnimationTimer;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
@@ -43,6 +46,23 @@ public class SceneRouter implements SceneRouterFacade {
 
         Label title = new Label("Battle City");
         title.getStyleClass().add("title");
+        
+        // 创建标题区域，包含两侧坦克和中间标题
+        HBox titleContainer = new HBox(20);
+        titleContainer.setAlignment(Pos.CENTER);
+        
+        // 创建左侧蓝色坦克Canvas
+        Canvas leftTankCanvas = new Canvas(80, 100); // 宽度比标题略宽
+        GraphicsContext leftGc = leftTankCanvas.getGraphicsContext2D();
+        drawMenuTank(leftGc, 40, 50, Color.BLUE, 0, 1); // 炮口朝下（方向向量(0,1)）
+        
+        // 创建右侧红色坦克Canvas
+        Canvas rightTankCanvas = new Canvas(80, 100); // 宽度比标题略宽
+        GraphicsContext rightGc = rightTankCanvas.getGraphicsContext2D();
+        drawMenuTank(rightGc, 40, 50, Color.RED, 0, 1); // 炮口朝下（方向向量(0,1)）
+        
+        // 将坦克和标题添加到标题容器
+        titleContainer.getChildren().addAll(leftTankCanvas, title, rightTankCanvas);
 
         Button classicBtn = new Button("经典模式");
         classicBtn.setOnAction(e -> {
@@ -69,14 +89,111 @@ public class SceneRouter implements SceneRouterFacade {
                 sceneChangeCallback.accept(selectScene);
             }
         });
+        
+        Button exitBtn = new Button("退出游戏");
+        exitBtn.setOnAction(e -> {
+            // 退出游戏
+            System.exit(0);
+        });
 
-        VBox menu = new VBox(12, title, classicBtn, endlessBtn, timedBtn, freeSelectBtn);
+        VBox menu = new VBox(20, titleContainer, classicBtn, endlessBtn, timedBtn, freeSelectBtn, exitBtn);
         menu.setAlignment(Pos.CENTER);
         root.setCenter(menu);
 
         Scene scene = new Scene(root, context.config().virtualWidth(), context.config().virtualHeight());
         scene.getStylesheets().add(getClass().getResource("/styles/main.css").toExternalForm());
         return scene;
+    }
+    
+    /**
+     * 在主菜单绘制坦克图案
+     * @param gc 图形上下文
+     * @param centerX 坦克中心点X坐标
+     * @param centerY 坦克中心点Y坐标
+     * @param color 坦克颜色
+     * @param dirX 炮口方向X分量
+     * @param dirY 炮口方向Y分量
+     */
+    private void drawMenuTank(GraphicsContext gc, double centerX, double centerY, Color color, double dirX, double dirY) {
+        double tankSize = 50; // 坦克主体大小
+        double x = centerX - tankSize / 2;
+        double y = centerY - tankSize / 2;
+        
+        // 确定坦克方向（上、下、左、右）
+        boolean isVertical = Math.abs(dirY) > Math.abs(dirX);
+        
+        // 绘制坦克主体（带圆角效果）
+        gc.setFill(color);
+        gc.fillRoundRect(x + 2, y + 2, tankSize - 4, tankSize - 4, 4, 4);
+        
+        // 绘制坦克边框
+        gc.setStroke(Color.BLACK);
+        gc.setLineWidth(1.5);
+        gc.strokeRoundRect(x + 2, y + 2, tankSize - 4, tankSize - 4, 4, 4);
+        
+        // 绘制履带（上下两条）
+        gc.setFill(Color.DARKGRAY);
+        if (isVertical) {
+            // 垂直方向：左右履带
+            gc.fillRect(x, y + 2, 3, tankSize - 4);
+            gc.fillRect(x + tankSize - 3, y + 2, 3, tankSize - 4);
+            // 履带纹理
+            gc.setStroke(Color.BLACK);
+            gc.setLineWidth(0.5);
+            for (int i = 0; i < 3; i++) {
+                double ty = y + 4 + i * (tankSize - 8) / 2;
+                gc.strokeLine(x, ty, x + 3, ty);
+                gc.strokeLine(x + tankSize - 3, ty, x + tankSize, ty);
+            }
+        } else {
+            // 水平方向：上下履带
+            gc.fillRect(x + 2, y, tankSize - 4, 3);
+            gc.fillRect(x + 2, y + tankSize - 3, tankSize - 4, 3);
+            // 履带纹理
+            gc.setStroke(Color.BLACK);
+            gc.setLineWidth(0.5);
+            for (int i = 0; i < 3; i++) {
+                double tx = x + 4 + i * (tankSize - 8) / 2;
+                gc.strokeLine(tx, y, tx, y + 3);
+                gc.strokeLine(tx, y + tankSize - 3, tx, y + tankSize);
+            }
+        }
+        
+        // 绘制炮塔（中心圆形）
+        gc.setFill(Color.rgb(
+            (int)(color.getRed() * 255 * 0.8),
+            (int)(color.getGreen() * 255 * 0.8),
+            (int)(color.getBlue() * 255 * 0.8)
+        ));
+        double turretSize = Math.min(tankSize, tankSize) * 0.5;
+        gc.fillOval(centerX - turretSize / 2, centerY - turretSize / 2, turretSize, turretSize);
+        gc.setStroke(Color.BLACK);
+        gc.setLineWidth(1);
+        gc.strokeOval(centerX - turretSize / 2, centerY - turretSize / 2, turretSize, turretSize);
+        
+        // 绘制炮管（根据方向）
+        double cannonLength = Math.max(tankSize, tankSize) * 0.7;
+        double cannonWidth = 4;
+        double cannonEndX = centerX + dirX * cannonLength;
+        double cannonEndY = centerY + dirY * cannonLength;
+        
+        // 计算炮管的角度
+        double angle = Math.atan2(dirY, dirX);
+        
+        // 绘制炮管（矩形，带旋转效果）
+        gc.save();
+        gc.translate(centerX, centerY);
+        gc.rotate(Math.toDegrees(angle));
+        gc.setFill(Color.DARKGRAY);
+        gc.fillRect(-cannonWidth / 2, -cannonWidth / 2, cannonLength, cannonWidth);
+        gc.setStroke(Color.BLACK);
+        gc.setLineWidth(1);
+        gc.strokeRect(-cannonWidth / 2, -cannonWidth / 2, cannonLength, cannonWidth);
+        gc.restore();
+        
+        // 绘制炮管口（圆形）
+        gc.setFill(Color.BLACK);
+        gc.fillOval(cannonEndX - 3, cannonEndY - 3, 6, 6);
     }
 
     private void switchToGameScene(GameEngine engine) {
@@ -108,8 +225,14 @@ public class SceneRouter implements SceneRouterFacade {
         
         Label enemiesLabel = new Label();
         enemiesLabel.setStyle("-fx-text-fill: white; -fx-font-size: 14px;");
+        
+        Label baseHealthLabel = new Label();
+        baseHealthLabel.setStyle("-fx-text-fill: white; -fx-font-size: 14px; -fx-alignment: center-right;");
 
-        hud.getChildren().addAll(healthLabel, enemiesLabel);
+        // 将baseHealthLabel放置在HBox的右侧
+        HBox.setHgrow(baseHealthLabel, Priority.ALWAYS);
+        
+        hud.getChildren().addAll(healthLabel, enemiesLabel, baseHealthLabel);
         root.setTop(hud);
 
         // 实时更新HUD并检查游戏失败
@@ -120,6 +243,7 @@ public class SceneRouter implements SceneRouterFacade {
                 if (world != null && world.playerTank() != null) {
                     healthLabel.setText("生命值: " + world.playerTank().health());
                     enemiesLabel.setText("敌人: " + world.enemyTanks().size());
+                    baseHealthLabel.setText("基地生命: " + world.base().health());
                     
                     // 检查游戏是否失败
                     if (world.isGameOver()) {
@@ -147,6 +271,7 @@ public class SceneRouter implements SceneRouterFacade {
                         engine.resume();
                     } else {
                         engine.pause();
+                        showPauseScene(engine);
                     }
                 }
             } else {
@@ -196,6 +321,80 @@ public class SceneRouter implements SceneRouterFacade {
     }
     
     /**
+     * 显示游戏暂停界面
+     */
+    private void showPauseScene(GameEngine engine) {
+        GameWorld world = engine.getWorld();
+        if (world == null) {
+            return;
+        }
+        
+        BorderPane root = new BorderPane();
+        root.setPadding(new Insets(40));
+        root.setStyle("-fx-background-color: rgba(0, 0, 0, 0.7);");
+        
+        VBox content = new VBox(20);
+        content.setAlignment(Pos.CENTER);
+        
+        Label pauseLabel = new Label("游戏暂停");
+        pauseLabel.setStyle("-fx-text-fill: white; -fx-font-size: 48px; -fx-font-weight: bold;");
+        
+        Button resumeBtn = new Button("继续游戏");
+        resumeBtn.getStyleClass().add("button"); // 添加与主界面相同的按钮样式
+        resumeBtn.setOnAction(e -> {
+            if (engine != null) {
+                engine.resume();
+            }
+            // 切换回原来的游戏场景
+            if (currentGameScene != null && sceneChangeCallback != null) {
+                sceneChangeCallback.accept(currentGameScene);
+            }
+        });
+        
+        Button returnBtn = new Button("返回主界面");
+        returnBtn.getStyleClass().add("button"); // 添加与主界面相同的按钮样式
+        returnBtn.setOnAction(e -> {
+            if (engine != null) {
+                engine.shutdown();
+            }
+            Scene mainMenuScene = buildMainMenuScene(engine);
+            if (sceneChangeCallback != null) {
+                sceneChangeCallback.accept(mainMenuScene);
+            }
+        });
+        
+        content.getChildren().addAll(pauseLabel, resumeBtn, returnBtn);
+        root.setCenter(content);
+        
+        // 创建暂停场景
+        double mapWidth = context.config().virtualWidth();
+        double mapHeight = context.config().virtualHeight();
+        double hudHeight = 40; // HUD固定高度
+        Scene pauseScene = new Scene(root, mapWidth, mapHeight + hudHeight);
+        
+        // 添加CSS样式表，确保按钮应用相同的样式
+        pauseScene.getStylesheets().add(getClass().getResource("/styles/main.css").toExternalForm());
+        
+        // 暂停界面也支持按P键或ESC键继续游戏
+        pauseScene.setOnKeyPressed(e -> {
+            if (e.getCode() == KeyCode.P || e.getCode() == KeyCode.ESCAPE) {
+                if (engine != null) {
+                    engine.resume();
+                }
+                // 切换回原来的游戏场景
+                if (currentGameScene != null && sceneChangeCallback != null) {
+                    sceneChangeCallback.accept(currentGameScene);
+                }
+            }
+        });
+        
+        // 触发场景切换回调
+        if (sceneChangeCallback != null) {
+            sceneChangeCallback.accept(pauseScene);
+        }
+    }
+    
+    /**
      * 显示游戏失败界面
      */
     private void showGameOverScene(GameEngine engine) {
@@ -229,7 +428,7 @@ public class SceneRouter implements SceneRouterFacade {
         messageLabel.setStyle("-fx-text-fill: white; -fx-font-size: 24px;");
         
         Button returnBtn = new Button("返回主菜单");
-        returnBtn.setStyle("-fx-font-size: 18px; -fx-padding: 10px 20px;");
+        returnBtn.getStyleClass().add("button"); // 添加与主界面相同的按钮样式
         returnBtn.setOnAction(e -> {
             if (engine != null) {
                 engine.shutdown();
@@ -244,6 +443,9 @@ public class SceneRouter implements SceneRouterFacade {
         root.setCenter(content);
         
         Scene gameOverScene = new Scene(root, context.config().virtualWidth(), context.config().virtualHeight());
+        
+        // 添加CSS样式表，确保按钮应用相同的样式
+        gameOverScene.getStylesheets().add(getClass().getResource("/styles/main.css").toExternalForm());
         
         // 触发场景切换回调
         if (sceneChangeCallback != null) {

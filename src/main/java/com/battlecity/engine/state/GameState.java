@@ -14,6 +14,7 @@ public class GameState {
     public GameState(GameModeType mode, GameWorld world) {
         this.mode = mode;
         this.world = world;
+        this.paused = false; // 确保新创建的游戏状态总是非暂停状态
     }
 
     public void update(double deltaSeconds) {
