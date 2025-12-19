@@ -40,6 +40,8 @@ public class GameController {
         com.battlecity.model.projectile.Bullet newBullet = inputController.processInputs(deltaSeconds);
         if (newBullet != null) {
             world.addPlayerBullet(newBullet);
+            // 播放开火音效
+            com.battlecity.audio.AudioManager.getInstance().playSound("fire");
         }
         
         // 更新世界（包括碰撞检测和回退）
@@ -56,6 +58,8 @@ public class GameController {
         
         // 检查游戏失败（基地血量<=0 或 玩家坦克死亡 或 限时模式超时）
         if (world.isGameOver()) {
+            // 播放游戏结束音效
+            com.battlecity.audio.AudioManager.getInstance().playSound("game_over");
             // 暂停游戏循环
             // 实际的处理会在UI层显示失败界面
         }

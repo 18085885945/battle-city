@@ -27,6 +27,8 @@ public class GameEngine {
 
     public void startClassicMode() {
         startCustomLevel(context.levelRepository().defaultClassic());
+        // 播放游戏开始音效
+        com.battlecity.audio.AudioManager.getInstance().playSound("game_start");
     }
 
     public void startEndlessMode() {
@@ -36,6 +38,8 @@ public class GameEngine {
             stateManager.startEndless(world);
             controller.bindWorld(world);
             loop.start();
+            // 播放游戏开始音效
+            com.battlecity.audio.AudioManager.getInstance().playSound("game_start");
         }
     }
 
@@ -46,6 +50,8 @@ public class GameEngine {
             stateManager.startTimed(world);
             controller.bindWorld(world);
             loop.start();
+            // 播放游戏开始音效
+            com.battlecity.audio.AudioManager.getInstance().playSound("game_start");
         }
     }
 
@@ -58,6 +64,8 @@ public class GameEngine {
         stateManager.startClassic(world);
         controller.bindWorld(world);
         loop.start();
+        // 播放游戏开始音效
+        com.battlecity.audio.AudioManager.getInstance().playSound("game_start");
     }
     
     /**
@@ -86,6 +94,8 @@ public class GameEngine {
         }
         controller.bindWorld(world);
         loop.start();
+        // 播放游戏开始音效
+        com.battlecity.audio.AudioManager.getInstance().playSound("game_start");
     }
 
     public void pause() {

@@ -1,5 +1,6 @@
 package com.battlecity.model;
 
+import com.battlecity.audio.AudioManager;
 import com.battlecity.map.LevelDefinition;
 import com.battlecity.map.ObstacleDefinition;
 import com.battlecity.map.TileType;
@@ -20,6 +21,8 @@ import com.battlecity.model.world.River;
 import com.battlecity.model.world.SteelWall;
 import com.battlecity.model.world.TerrainTile;
 import com.battlecity.physics.CollisionDetector;
+import com.battlecity.effect.EffectManager;
+import com.battlecity.effect.ExplosionEffect;
 
 import java.util.ArrayList;
 import java.util.Iterator;
@@ -42,6 +45,7 @@ public class GameWorld {
     private final List<PowerUp> powerUps = new ArrayList<>(); // 道具列表
     private final CollisionDetector collisionDetector = new CollisionDetector();
     private final com.battlecity.ai.EnemyAIController aiController = new com.battlecity.ai.EnemyAIController();
+    private final EffectManager effectManager = new EffectManager();
     
     // 敌对坦克生成相关
     private static final int MAX_ENEMY_ON_FIELD = 6; // 场上最大敌对坦克数量
@@ -685,6 +689,10 @@ public class GameWorld {
                     // 如果敌人被击杀，增加击杀计数
                     if (!enemy.alive()) {
                         enemiesKilled++;
+                        // 播放爆炸音效
+                        com.battlecity.audio.AudioManager.getInstance().playSound("explosion");
+                        // 创建爆炸特效
+                        createExplosion(enemy.center(), 30, 0.5);
                     }
                     hitEnemy = true;
                     break;
@@ -715,6 +723,10 @@ public class GameWorld {
             // 检测敌方子弹与玩家坦克的碰撞
             if (playerTank != null && playerTank.alive() && collisionDetector.collide(bullet, playerTank)) {
                 playerTank.takeDamage(1);
+                // 播放爆炸音效
+                com.battlecity.audio.AudioManager.getInstance().playSound("explosion");
+                // 创建爆炸特效
+                createExplosion(playerTank.center(), 30, 0.5);
                 bullet.destroy();
                 iterator.remove();
                 continue;
@@ -732,6 +744,9 @@ public class GameWorld {
         
         // 检测玩家与道具的碰撞
         handlePowerUpCollection();
+        
+        // 更新特效
+        effectManager.update(deltaSeconds);
         
         // 检查游戏失败条件（基地血量<=0）
         checkGameOver();
@@ -766,6 +781,8 @@ public class GameWorld {
         while (powerUpIterator.hasNext()) {
             PowerUp powerUp = powerUpIterator.next();
             if (collisionDetector.collide(playerTank, powerUp)) {
+                // 播放道具拾取音效
+                AudioManager.getInstance().playSound("powerup");
                 // 应用道具效果
                 powerUp.applyEffect(playerTank);
                 powerUp.applyGlobalEffect(this);
@@ -929,6 +946,8 @@ public class GameWorld {
         // 如果击中了砖块，移除所有碰撞的砖块
         if (!collidingBricks.isEmpty()) {
             obstacles.removeAll(collidingBricks);
+            // 播放击中砖墙音效
+            com.battlecity.audio.AudioManager.getInstance().playSound("hit_brick");
         }
         
         // 如果击中了钢墙
@@ -937,9 +956,13 @@ public class GameWorld {
             if (bullet.canPenetrate()) {
                 // 可以穿透，移除所有碰撞的钢墙
                 obstacles.removeAll(collidingSteelWalls);
+                // 播放击中钢墙音效
+                com.battlecity.audio.AudioManager.getInstance().playSound("hit_steel");
             } else {
                 // 不能穿透，销毁子弹
                 bullet.destroy();
+                // 播放击中钢墙音效
+                com.battlecity.audio.AudioManager.getInstance().playSound("hit_steel");
                 return true;
             }
         }
@@ -949,6 +972,10 @@ public class GameWorld {
             bullet.destroy();
             // 任何子弹击中基地，基地都受到伤害
             base.damage();
+            // 播放基地被击中音效
+            com.battlecity.audio.AudioManager.getInstance().playSound("base_destroyed");
+            // 创建基地爆炸特效
+            createExplosion(base.center(), 40, 0.8);
             return true;
         }
         
@@ -1171,6 +1198,25 @@ public class GameWorld {
      */
     public void addEnemyTank(EnemyTank enemy) {
         enemyTanks.add(enemy);
+    }
+    
+    /**
+     * 创建爆炸特效
+     * @param position 爆炸位置
+     * @param radius 爆炸半径
+     * @param duration 持续时间（秒）
+     */
+    public void createExplosion(com.battlecity.model.Vector2D position, double radius, double duration) {
+        ExplosionEffect explosion = new ExplosionEffect(position, duration, radius);
+        effectManager.addEffect(explosion);
+    }
+    
+    /**
+     * 获取特效管理器
+     * @return 特效管理器
+     */
+    public EffectManager getEffectManager() {
+        return effectManager;
     }
 }
 
