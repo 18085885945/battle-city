@@ -1,0 +1,17 @@
+.title {
+    -fx-font-size: 36px;
+    -fx-text-fill: #f4d35e;
+    -fx-font-family: "Press Start 2P", "Consolas", monospace;
+}
+
+.button {
+    -fx-pref-width: 220px;
+    -fx-font-size: 16px;
+    -fx-background-color: #1b263b;
+    -fx-text-fill: #ffffff;
+}
+
+.button:hover {
+    -fx-background-color: #415a77;
+}
+

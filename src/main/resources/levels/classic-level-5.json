@@ -1,0 +1,44 @@
+{
+  "id": "classic-5",
+  "name": "经典第5关",
+  "width": 800,
+  "height": 600,
+  "base": { "x": 384, "y": 568 },
+  "obstacles": [
+    { "type": "STEEL", "x": 96, "y": 96 },
+    { "type": "STEEL", "x": 128, "y": 96 },
+    { "type": "STEEL", "x": 672, "y": 96 },
+    { "type": "STEEL", "x": 704, "y": 96 },
+    { "type": "BRICK", "x": 200, "y": 200 },
+    { "type": "BRICK", "x": 232, "y": 200 },
+    { "type": "BRICK", "x": 264, "y": 200 },
+    { "type": "BRICK", "x": 296, "y": 200 },
+    { "type": "BRICK", "x": 328, "y": 200 },
+    { "type": "BRICK", "x": 360, "y": 200 },
+    { "type": "BRICK", "x": 392, "y": 200 },
+    { "type": "BRICK", "x": 424, "y": 200 },
+    { "type": "BRICK", "x": 456, "y": 200 },
+    { "type": "BRICK", "x": 488, "y": 200 },
+    { "type": "BRICK", "x": 520, "y": 200 },
+    { "type": "RIVER", "x": 320, "y": 320 },
+    { "type": "RIVER", "x": 352, "y": 320 },
+    { "type": "RIVER", "x": 384, "y": 320 },
+    { "type": "RIVER", "x": 416, "y": 320 },
+    { "type": "RIVER", "x": 448, "y": 320 },
+    { "type": "RIVER", "x": 320, "y": 352 },
+    { "type": "RIVER", "x": 352, "y": 352 },
+    { "type": "RIVER", "x": 384, "y": 352 },
+    { "type": "RIVER", "x": 416, "y": 352 },
+    { "type": "RIVER", "x": 448, "y": 352 },
+    { "type": "GRASS", "x": 160, "y": 440 },
+    { "type": "GRASS", "x": 192, "y": 440 },
+    { "type": "GRASS", "x": 608, "y": 440 },
+    { "type": "GRASS", "x": 640, "y": 440 },
+    { "type": "STEEL", "x": 360, "y": 480 },
+    { "type": "STEEL", "x": 392, "y": 480 },
+    { "type": "STEEL", "x": 424, "y": 480 }
+  ]
+}
+
+
+
