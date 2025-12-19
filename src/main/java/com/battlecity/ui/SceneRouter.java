@@ -544,6 +544,9 @@ public class SceneRouter implements SceneRouterFacade {
      * 显示游戏胜利界面
      */
     private void showVictoryScene(GameEngine engine, com.battlecity.engine.state.GameModeType gameMode, double elapsedSeconds) {
+        // 播放游戏胜利音效
+        com.battlecity.audio.AudioManager.getInstance().playSound("victory");
+        
         GameWorld world = engine.getWorld();
         if (world == null) {
             return;

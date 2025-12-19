@@ -35,6 +35,11 @@
             <artifactId>javafx-graphics</artifactId>
             <version>${javafx.version}</version>
         </dependency>
+        <dependency>
+            <groupId>org.openjfx</groupId>
+            <artifactId>javafx-media</artifactId>
+            <version>${javafx.version}</version>
+        </dependency>
 
         <!-- Config & serialization -->
         <dependency>
@@ -84,7 +89,7 @@
                         <option>--module-path</option>
                         <option>${javafx.sdk.path}</option>
                         <option>--add-modules</option>
-                        <option>javafx.controls,javafx.fxml</option>
+                        <option>javafx.controls,javafx.fxml,javafx.media</option>
                     </options>
                 </configuration>
             </plugin>

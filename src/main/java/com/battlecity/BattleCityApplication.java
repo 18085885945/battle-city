@@ -27,6 +27,10 @@ public class BattleCityApplication extends Application {
 
         SceneRouter sceneRouter = new SceneRouter(context);
         sceneRouter.setPrimaryStage(primaryStage); // 传递Stage引用以便控制窗口最大化
+        // 初始化音频管理器并预加载音效
+        com.battlecity.audio.AudioManager audioManager = com.battlecity.audio.AudioManager.getInstance();
+        audioManager.preloadSounds();
+        
         GameController controller = new GameController(context, sceneRouter);
         sceneRouter.setController(controller);
 

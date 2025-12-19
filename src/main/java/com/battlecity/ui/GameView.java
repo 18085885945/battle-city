@@ -9,6 +9,8 @@ import com.battlecity.map.TileType;
 import com.battlecity.model.world.Base;
 import com.battlecity.model.world.Obstacle;
 import com.battlecity.model.world.TerrainTile;
+import com.battlecity.effect.Effect;
+import com.battlecity.effect.ExplosionEffect;
 import javafx.animation.AnimationTimer;
 import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
@@ -141,6 +143,15 @@ public class GameView extends Canvas {
         
         // 绘制道具效果状态
         drawPowerUpEffects();
+        
+        // 绘制特效
+        if (world.getEffectManager() != null) {
+            for (Effect effect : world.getEffectManager().getEffects()) {
+                if (effect instanceof ExplosionEffect) {
+                    drawExplosion((ExplosionEffect) effect);
+                }
+            }
+        }
     }
     
     /**
@@ -670,6 +681,58 @@ public class GameView extends Canvas {
             double[] xPoints = {centerX + width / 2, centerX + width / 2 - arrowSize, centerX + width / 2 - arrowSize};
             double[] yPoints = {centerY, centerY - arrowSize, centerY + arrowSize};
             gc.fillPolygon(xPoints, yPoints, 3);
+        }
+    }
+    
+    private void drawExplosion(ExplosionEffect effect) {
+        double centerX = effect.getPosition().x();
+        double centerY = effect.getPosition().y();
+        double radius = effect.getCurrentRadius();
+        double intensity = effect.getIntensity();
+        
+        // 根据强度调整颜色和透明度
+        int red = Math.min(255, (int)(255 * intensity));
+        int green = Math.min(255, (int)(165 * intensity)); // 橙色
+        int blue = 0;
+        double alpha = intensity * 0.8; // 最大80%透明度
+        
+        // 绘制多层爆炸效果
+        
+        // 第一层：外层光环（较暗的橙色）
+        gc.setFill(Color.rgb(red/2, green/2, blue, alpha/2));
+        gc.fillOval(centerX - radius * 1.2, centerY - radius * 1.2, radius * 2.4, radius * 2.4);
+        
+        // 第二层：主爆炸区域（亮橙色）
+        gc.setFill(Color.rgb(red, green, blue, alpha));
+        gc.fillOval(centerX - radius, centerY - radius, radius * 2, radius * 2);
+        
+        // 第三层：内层核心（黄色）
+        gc.setFill(Color.rgb(255, 255, 0, alpha));
+        gc.fillOval(centerX - radius * 0.6, centerY - radius * 0.6, radius * 1.2, radius * 1.2);
+        
+        // 绘制爆炸纹理（随机点）
+        gc.setFill(Color.WHITE);
+        int particleCount = (int)(15 * intensity);
+        for (int i = 0; i < particleCount; i++) {
+            double angle = Math.random() * Math.PI * 2;
+            double distance = Math.random() * radius * 0.8;
+            double px = centerX + Math.cos(angle) * distance;
+            double py = centerY + Math.sin(angle) * distance;
+            double particleSize = 1 + Math.random() * 3 * intensity;
+            gc.fillOval(px - particleSize/2, py - particleSize/2, particleSize, particleSize);
+        }
+        
+        // 绘制放射状光线
+        gc.setStroke(Color.rgb(255, 200, 0, alpha * 0.7));
+        gc.setLineWidth(1 * intensity);
+        int rayCount = (int)(8 * intensity);
+        for (int i = 0; i < rayCount; i++) {
+            double angle = (Math.PI * 2 * i) / rayCount;
+            double startX = centerX + Math.cos(angle) * radius * 0.3;
+            double startY = centerY + Math.sin(angle) * radius * 0.3;
+            double endX = centerX + Math.cos(angle) * radius * 1.5;
+            double endY = centerY + Math.sin(angle) * radius * 1.5;
+            gc.strokeLine(startX, startY, endX, endY);
         }
     }
 }
