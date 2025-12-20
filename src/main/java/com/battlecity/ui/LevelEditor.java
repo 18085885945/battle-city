@@ -27,8 +27,10 @@ import java.util.ArrayList;
 import java.util.List;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.stream.Stream;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.battlecity.util.ResourceLocator;
+import com.battlecity.map.LevelLoader;
 
 /**
  * 地图编辑器
@@ -36,9 +38,9 @@ import com.battlecity.util.ResourceLocator;
 public class LevelEditor {
     
     public enum MapSize {
-        SMALL(600, 450, "小地图"),   // 40x30格子
-        MEDIUM(750, 600, "中地图"),  // 53x40格子
-        LARGE(960, 690, "大地图");   // 64x48格子
+        SMALL(640, 480, "小地图"),   // 40x30格子
+        MEDIUM(832, 640, "中地图"),  // 52x40格子
+        LARGE(1024, 768, "大地图");   // 64x48格子
         
         public final int width;
         public final int height;
@@ -68,14 +70,16 @@ public class LevelEditor {
     private GameMode currentMode = GameMode.CUSTOM; // 默认模式为自定义
     private TileType selectedObstacleType = null;
     private List<ObstacleDefinition> obstacles = new ArrayList<>();
+    private String currentLevelId = null; // 当前编辑的地图ID（用于修改时覆盖原文件）
+    private String currentLevelName = null; // 当前编辑的地图名称（用于修改时保留原名称）
     private Canvas mapCanvas;
     private GraphicsContext gc;
     private CollisionDetector collisionDetector = new CollisionDetector();
     private ScrollPane mapScrollPane; // 地图滚动面板
     private Pane mapContainer; // 地图容器
     private StackPane centeredContainer; // 居中容器，用于在ScrollPane中居中显示地图
-    private static final double GRID_SIZE = 15; // 格子大小（砖块大小15x15）
-    private static final double TERRAIN_SIZE = 60; // 地形大小（草丛和水路占4个格子：4x15=60）
+    private static final double GRID_SIZE = 16; // 格子大小（一个小砖块大小16x16）
+    private static final double TERRAIN_SIZE = 32; // 地形大小（草丛和水路占2x2格子：2x16=32）
 
     // 拖动绘制/擦除相关状态
     private boolean isPainting = false;
@@ -85,7 +89,8 @@ public class LevelEditor {
 
     private enum PaintMode {
         ADD,
-        REMOVE
+        REMOVE,
+        ERASER  // 橡皮擦模式：删除任何类型的障碍物
     }
     private Runnable onBackCallback;
     private java.util.function.Consumer<Scene> sceneUpdateCallback;
@@ -100,9 +105,24 @@ public class LevelEditor {
     }
     
     public Scene buildEditorScene(Runnable onBack, java.util.function.Consumer<Scene> sceneUpdateCallback, GameMode mode) {
+        return buildEditorScene(onBack, sceneUpdateCallback, mode, null);
+    }
+    
+    public Scene buildEditorScene(Runnable onBack, java.util.function.Consumer<Scene> sceneUpdateCallback, GameMode mode, LevelDefinition existingLevel) {
         this.onBackCallback = onBack;
         this.sceneUpdateCallback = sceneUpdateCallback;
         this.currentMode = mode != null ? mode : GameMode.CUSTOM;
+        
+        // 如果提供了现有地图，加载它
+        if (existingLevel != null) {
+            loadLevel(existingLevel);
+        } else {
+            // 重置状态
+            currentLevelId = null;
+            currentLevelName = null;
+            obstacles.clear();
+        }
+        
         return createEditorScene();
     }
     
@@ -134,9 +154,21 @@ public class LevelEditor {
         smallBtn.setToggleGroup(sizeGroup);
         RadioButton mediumBtn = new RadioButton("中");
         mediumBtn.setToggleGroup(sizeGroup);
-        mediumBtn.setSelected(true);
         RadioButton largeBtn = new RadioButton("大");
         largeBtn.setToggleGroup(sizeGroup);
+        
+        // 根据当前地图大小设置选中状态
+        switch (currentMapSize) {
+            case SMALL:
+                smallBtn.setSelected(true);
+                break;
+            case MEDIUM:
+                mediumBtn.setSelected(true);
+                break;
+            case LARGE:
+                largeBtn.setSelected(true);
+                break;
+        }
         
         smallBtn.setOnAction(e -> {
             currentMapSize = MapSize.SMALL;
@@ -181,12 +213,32 @@ public class LevelEditor {
         RadioButton grassBtn = new RadioButton("草丛");
         grassBtn.setToggleGroup(obstacleGroup);
         
-        brickBtn.setOnAction(e -> selectedObstacleType = TileType.BRICK);
-        steelBtn.setOnAction(e -> selectedObstacleType = TileType.STEEL);
-        riverBtn.setOnAction(e -> selectedObstacleType = TileType.RIVER);
-        grassBtn.setOnAction(e -> selectedObstacleType = TileType.GRASS);
+        brickBtn.setOnAction(e -> {
+            selectedObstacleType = TileType.BRICK;
+            currentPaintMode = PaintMode.ADD;
+        });
+        steelBtn.setOnAction(e -> {
+            selectedObstacleType = TileType.STEEL;
+            currentPaintMode = PaintMode.ADD;
+        });
+        riverBtn.setOnAction(e -> {
+            selectedObstacleType = TileType.RIVER;
+            currentPaintMode = PaintMode.ADD;
+        });
+        grassBtn.setOnAction(e -> {
+            selectedObstacleType = TileType.GRASS;
+            currentPaintMode = PaintMode.ADD;
+        });
         
-        HBox obstacleBox = new HBox(5, obstacleLabel, brickBtn, steelBtn, riverBtn, grassBtn);
+        // 橡皮擦按钮
+        RadioButton eraserBtn = new RadioButton("橡皮擦");
+        eraserBtn.setToggleGroup(obstacleGroup);
+        eraserBtn.setOnAction(e -> {
+            selectedObstacleType = null; // 橡皮擦不需要选择障碍物类型
+            currentPaintMode = PaintMode.ERASER;
+        });
+        
+        HBox obstacleBox = new HBox(5, obstacleLabel, brickBtn, steelBtn, riverBtn, grassBtn, eraserBtn);
         obstacleBox.setAlignment(Pos.CENTER_LEFT);
         
         // 清除按钮
@@ -287,6 +339,10 @@ public class LevelEditor {
         if (maximizeCallback != null) {
             maximizeCallback.accept(true);
         }
+        
+        // 绘制地图（如果是加载的现有地图，会显示出来）
+        drawMap();
+        
         return currentScene;
     }
     
@@ -333,12 +389,27 @@ public class LevelEditor {
     
     private void handleMouseMove(MouseEvent e) {
         drawMap();
-        if (selectedObstacleType != null) {
+        double x = snapToGrid(e.getX());
+        double y = snapToGrid(e.getY());
+        
+        if (currentPaintMode == PaintMode.ERASER) {
+            // 橡皮擦模式：显示将要删除的障碍物预览
+            // 先检查是否有大块障碍物（草丛或河流，都是2x2格子）
+            ObstacleDefinition terrain = findTerrainAt(x, y);
+            if (terrain != null) {
+                // 显示将要删除的大块障碍物预览
+                drawEraserPreview(terrain.x(), terrain.y(), terrain.type());
+            } else {
+                // 检查是否有小障碍物（砖块或钢墙，1个格子）
+                ObstacleDefinition obstacle = findAnyObstacleAt(x, y);
+                if (obstacle != null) {
+                    // 显示将要删除的小障碍物预览
+                    drawEraserPreview(obstacle.x(), obstacle.y(), obstacle.type());
+                }
+            }
+        } else if (selectedObstacleType != null) {
             // 绘制虚幻的障碍物
-            double x = snapToGrid(e.getX());
-            double y = snapToGrid(e.getY());
-            
-            // 对于草丛和水路，需要对齐到4个格子的边界（60像素的倍数）
+            // 对于草丛和水路，需要对齐到2x2格子的边界（32像素的倍数）
             if (selectedObstacleType == TileType.RIVER || selectedObstacleType == TileType.GRASS) {
                 x = Math.floor(x / TERRAIN_SIZE) * TERRAIN_SIZE;
                 y = Math.floor(y / TERRAIN_SIZE) * TERRAIN_SIZE;
@@ -351,25 +422,39 @@ public class LevelEditor {
     }
 
     private void handleMousePressed(MouseEvent e) {
-        if (selectedObstacleType == null) {
+        // 如果是橡皮擦模式，不需要selectedObstacleType
+        if (currentPaintMode != PaintMode.ERASER && selectedObstacleType == null) {
             return;
         }
+        
         double x = snapToGrid(e.getX());
         double y = snapToGrid(e.getY());
 
-        // 对于草丛和水路，需要对齐到4个格子的边界（60像素的倍数）
-        if (selectedObstacleType == TileType.RIVER || selectedObstacleType == TileType.GRASS) {
+        // 如果是橡皮擦模式，需要检查点击位置是否有大块障碍物（草丛或河流）
+        if (currentPaintMode == PaintMode.ERASER) {
+            // 先检查是否有大块障碍物（草丛或河流，都是2x2格子）
+            ObstacleDefinition terrain = findTerrainAt(x, y);
+            if (terrain != null) {
+                // 找到大块障碍物，对齐到网格
+                x = terrain.x();
+                y = terrain.y();
+            }
+        } else if (selectedObstacleType == TileType.RIVER || selectedObstacleType == TileType.GRASS) {
+            // 对于草丛和水路，需要对齐到2x2格子的边界（32像素的倍数）
             x = Math.floor(x / TERRAIN_SIZE) * TERRAIN_SIZE;
             y = Math.floor(y / TERRAIN_SIZE) * TERRAIN_SIZE;
         }
 
-        if (!isValidPosition(x, y)) {
+        if (currentPaintMode != PaintMode.ERASER && !isValidPosition(x, y)) {
             return;
         }
 
-        // 根据起始格子是否已有同类型障碍物，决定当前是「绘制模式」还是「擦除模式」
-        ObstacleDefinition existing = findObstacleAt(selectedObstacleType, x, y);
-        currentPaintMode = (existing != null) ? PaintMode.REMOVE : PaintMode.ADD;
+        // 如果不是橡皮擦模式，根据起始格子是否已有同类型障碍物，决定当前是「绘制模式」还是「擦除模式」
+        if (currentPaintMode != PaintMode.ERASER) {
+            ObstacleDefinition existing = findObstacleAt(selectedObstacleType, x, y);
+            currentPaintMode = (existing != null) ? PaintMode.REMOVE : PaintMode.ADD;
+        }
+        
         isPainting = true;
         lastPaintX = Double.NaN;
         lastPaintY = Double.NaN;
@@ -378,18 +463,32 @@ public class LevelEditor {
     }
 
     private void handleMouseDragged(MouseEvent e) {
-        if (!isPainting || selectedObstacleType == null) {
+        if (!isPainting) {
             return;
         }
+        
+        // 如果是橡皮擦模式，不需要selectedObstacleType
+        if (currentPaintMode != PaintMode.ERASER && selectedObstacleType == null) {
+            return;
+        }
+        
         double x = snapToGrid(e.getX());
         double y = snapToGrid(e.getY());
 
-        if (selectedObstacleType == TileType.RIVER || selectedObstacleType == TileType.GRASS) {
+        // 如果是橡皮擦模式，需要检查拖动位置是否有大块障碍物（草丛或河流）
+        if (currentPaintMode == PaintMode.ERASER) {
+            ObstacleDefinition terrain = findTerrainAt(x, y);
+            if (terrain != null) {
+                x = terrain.x();
+                y = terrain.y();
+            }
+        } else if (selectedObstacleType == TileType.RIVER || selectedObstacleType == TileType.GRASS) {
+            // 对于草丛和水路，需要对齐到2x2格子的边界（32像素的倍数）
             x = Math.floor(x / TERRAIN_SIZE) * TERRAIN_SIZE;
             y = Math.floor(y / TERRAIN_SIZE) * TERRAIN_SIZE;
         }
 
-        if (!isValidPosition(x, y)) {
+        if (currentPaintMode != PaintMode.ERASER && !isValidPosition(x, y)) {
             return;
         }
 
@@ -414,6 +513,26 @@ public class LevelEditor {
      * 在指定格子应用当前绘制模式（添加或删除），用于单击和拖动画刷。
      */
     private void applyPaintAt(double x, double y) {
+        if (currentPaintMode == PaintMode.ERASER) {
+            // 橡皮擦模式：删除任何类型的障碍物
+            // 先检查是否有大块障碍物（草丛或河流，都是2x2格子）
+            ObstacleDefinition terrain = findTerrainAt(x, y);
+            if (terrain != null) {
+                // 删除整个大块障碍物
+                obstacles.remove(terrain);
+                drawMap();
+                return;
+            }
+            
+            // 检查是否有小障碍物（砖块或钢墙，1个格子）
+            ObstacleDefinition obstacle = findAnyObstacleAt(x, y);
+            if (obstacle != null) {
+                obstacles.remove(obstacle);
+                drawMap();
+            }
+            return;
+        }
+        
         if (currentPaintMode == PaintMode.REMOVE) {
             // 擦除：删除当前格子上的同类型障碍物（如果存在）
             ObstacleDefinition existing = findObstacleAt(selectedObstacleType, x, y);
@@ -459,13 +578,58 @@ public class LevelEditor {
         return null;
     }
     
+    /**
+     * 查找在指定位置的大块障碍物（草丛或河流），通过碰撞检测
+     */
+    private ObstacleDefinition findTerrainAt(double x, double y) {
+        // 创建测试点
+        Vector2D testPoint = new Vector2D(x, y);
+        
+        for (ObstacleDefinition def : obstacles) {
+            // 检查草丛和河流（都是2x2格子）
+            if (def.type() == TileType.GRASS || def.type() == TileType.RIVER) {
+                // 创建障碍物进行碰撞检测
+                Obstacle obstacle = createObstacle(def.type(), def.x(), def.y());
+                // 检查点是否在障碍物内
+                if (testPoint.x() >= obstacle.position().x() && 
+                    testPoint.x() < obstacle.position().x() + obstacle.size().width() &&
+                    testPoint.y() >= obstacle.position().y() && 
+                    testPoint.y() < obstacle.position().y() + obstacle.size().height()) {
+                    return def;
+                }
+            }
+        }
+        return null;
+    }
+    
+    /**
+     * 查找在指定位置的小障碍物（砖块或钢墙），用于橡皮擦
+     */
+    private ObstacleDefinition findAnyObstacleAt(double x, double y) {
+        // 创建测试点
+        Vector2D testPoint = new Vector2D(x, y);
+        
+        for (ObstacleDefinition def : obstacles) {
+            // 跳过已经处理的大块障碍物（草丛和河流是2x2格子）
+            if (def.type() == TileType.GRASS || def.type() == TileType.RIVER) {
+                continue;
+            }
+            
+            // 检查点是否在障碍物内（精确匹配位置）
+            if (Math.abs(def.x() - x) < 1 && Math.abs(def.y() - y) < 1) {
+                return def;
+            }
+        }
+        return null;
+    }
+    
     private double snapToGrid(double coord) {
-        // 对齐到网格（15像素网格，砖块大小）
+        // 对齐到网格（16像素网格，一个小砖块大小）
         return Math.floor(coord / GRID_SIZE) * GRID_SIZE;
     }
     
     private boolean isValidPosition(double x, double y) {
-        // 根据障碍物类型确定大小
+        // 根据障碍物类型确定大小：草丛和水路占2x2格子（32x32），砖块和钢墙占1个格子（16x16）
         double size = (selectedObstacleType == TileType.RIVER || selectedObstacleType == TileType.GRASS) 
                 ? TERRAIN_SIZE : GRID_SIZE;
         
@@ -490,18 +654,23 @@ public class LevelEditor {
     }
     
     private Obstacle createObstacle(TileType type, double x, double y) {
-        // 草丛和水路占4个格子（60x60），其他占1个格子（15x15）
+        // 草丛和水路占2x2格子（32x32），砖块和钢墙占1个格子（16x16）
         double sizeValue = (type == TileType.RIVER || type == TileType.GRASS) ? TERRAIN_SIZE : GRID_SIZE;
         Size size = new Size(sizeValue, sizeValue);
         Vector2D pos = new Vector2D(x, y);
         
-        return switch (type) {
-            case BRICK -> new BrickWall(pos, size);
-            case STEEL -> new SteelWall(pos, size);
-            case RIVER -> new River(pos, size);
-            case GRASS -> new BrickWall(pos, size); // GRASS不阻挡，但为了碰撞检测使用BrickWall
-            default -> null;
-        };
+        switch (type) {
+            case BRICK:
+                return new BrickWall(pos, size);
+            case STEEL:
+                return new SteelWall(pos, size);
+            case RIVER:
+                return new River(pos, size);
+            case GRASS:
+                return new BrickWall(pos, size); // GRASS不阻挡，但为了碰撞检测使用BrickWall
+            default:
+                return null;
+        }
     }
     
     private void drawGhostObstacle(double x, double y, TileType type) {
@@ -510,12 +679,32 @@ public class LevelEditor {
         gc.setGlobalAlpha(1.0);
     }
     
+    /**
+     * 绘制橡皮擦预览效果（红色半透明覆盖层）
+     */
+    private void drawEraserPreview(double x, double y, TileType type) {
+        // 根据障碍物类型确定大小：草丛和水路占2x2格子（32x32），砖块和钢墙占1个格子（16x16）
+        double size = (type == TileType.RIVER || type == TileType.GRASS) 
+                ? TERRAIN_SIZE : GRID_SIZE;
+        
+        // 绘制红色半透明覆盖层表示将要删除的区域
+        gc.setGlobalAlpha(0.4);
+        gc.setFill(Color.RED);
+        gc.fillRect(x, y, size, size);
+        gc.setGlobalAlpha(1.0);
+        
+        // 绘制红色边框
+        gc.setStroke(Color.DARKRED);
+        gc.setLineWidth(2);
+        gc.strokeRect(x, y, size, size);
+    }
+    
     private void drawMap() {
         // 清空画布
         gc.setFill(Color.LIGHTGRAY);
         gc.fillRect(0, 0, currentMapSize.width, currentMapSize.height);
         
-        // 绘制网格（15像素网格，砖块大小）
+        // 绘制网格（16像素网格，一个小砖块大小）
         gc.setStroke(Color.GRAY);
         gc.setLineWidth(0.5);
         for (int x = 0; x <= currentMapSize.width; x += GRID_SIZE) {
@@ -542,38 +731,38 @@ public class LevelEditor {
     }
     
     private void drawObstacle(GraphicsContext gc, double x, double y, TileType type) {
-        // 草丛和水路占4个格子（60x60），其他占1个格子（15x15）
+        // 草丛和水路占2x2格子（32x32），砖块和钢墙占1个格子（16x16）
         double size = (type == TileType.RIVER || type == TileType.GRASS) ? TERRAIN_SIZE : GRID_SIZE;
         
         switch (type) {
-            case BRICK -> {
+            case BRICK:
                 gc.setFill(Color.rgb(139, 69, 19)); // 棕色
                 gc.fillRect(x, y, size, size);
                 gc.setStroke(Color.BLACK);
                 gc.setLineWidth(1);
                 gc.strokeRect(x, y, size, size);
-            }
-            case STEEL -> {
+                break;
+            case STEEL:
                 gc.setFill(Color.GRAY);
                 gc.fillRect(x, y, size, size);
                 gc.setStroke(Color.DARKGRAY);
                 gc.setLineWidth(2);
                 gc.strokeRect(x, y, size, size);
-            }
-            case RIVER -> {
+                break;
+            case RIVER:
                 gc.setFill(Color.BLUE);
                 gc.fillRect(x, y, size, size);
                 gc.setStroke(Color.DARKBLUE);
                 gc.setLineWidth(1);
                 gc.strokeRect(x, y, size, size);
-            }
-            case GRASS -> {
+                break;
+            case GRASS:
                 gc.setFill(Color.GREEN);
                 gc.fillRect(x, y, size, size);
                 gc.setStroke(Color.DARKGREEN);
                 gc.setLineWidth(1);
                 gc.strokeRect(x, y, size, size);
-            }
+                break;
         }
     }
     
@@ -587,44 +776,86 @@ public class LevelEditor {
     }
     
     /**
+     * 加载现有地图
+     */
+    private void loadLevel(LevelDefinition level) {
+        currentLevelId = level.id();
+        currentLevelName = level.name();
+        
+        // 根据地图大小设置MapSize
+        if (level.width() == 600 && level.height() == 450) {
+            currentMapSize = MapSize.SMALL;
+        } else if (level.width() == 960 && level.height() == 690) {
+            currentMapSize = MapSize.LARGE;
+        } else {
+            currentMapSize = MapSize.MEDIUM;
+        }
+        
+        // 根据关卡ID判断游戏模式
+        String id = level.id();
+        if (id != null) {
+            if (id.startsWith("classic-") || id.startsWith("classic_level-")) {
+                currentMode = GameMode.CLASSIC;
+            } else if (id.startsWith("endless-")) {
+                currentMode = GameMode.ENDLESS;
+            } else if (id.startsWith("timed-") || id.startsWith("timed_challenge")) {
+                currentMode = GameMode.TIMED;
+            } else {
+                currentMode = GameMode.CUSTOM;
+            }
+        }
+        
+        // 加载障碍物
+        obstacles.clear();
+        obstacles.addAll(level.obstacles());
+    }
+    
+    /**
      * 保存地图到文件
      */
     private void saveMap() {
-        // 弹出对话框让用户输入地图名称
-        TextInputDialog dialog = new TextInputDialog();
-        dialog.setTitle("保存地图");
-        dialog.setHeaderText("请输入地图名称");
-        dialog.setContentText("地图名称:");
-        
-        dialog.showAndWait().ifPresent(mapName -> {
-            if (mapName == null || mapName.trim().isEmpty()) {
-                showAlert("错误", "地图名称不能为空！");
-                return;
-            }
-            
-            // 生成唯一ID（基于名称和时间戳）
-            String id = generateId(mapName.trim());
-            
-            // 创建LevelDefinition
-            LevelDefinition levelDef = createLevelDefinition(id, mapName.trim());
-            
-            // 保存到文件
+        // 如果是修改现有地图，直接保存；否则弹出对话框让用户输入地图名称
+        if (currentLevelId != null) {
+            // 修改现有地图，直接保存（保留原ID和名称，覆盖原文件）
             try {
+                LevelDefinition levelDef = createLevelDefinition(currentLevelId, currentLevelName);
+                
                 Path levelsDir = ResourceLocator.levelsDirectory();
+                
                 // 确保目录存在
                 if (!Files.exists(levelsDir)) {
                     Files.createDirectories(levelsDir);
                 }
                 
-                // 生成文件名（基于ID）
-                String fileName = id + ".json";
+                // 查找原始文件名：遍历所有JSON文件，找到id匹配的文件
+                String originalFileName = null;
+                try (Stream<Path> paths = Files.list(levelsDir)) {
+                    LevelLoader loader = new LevelLoader();
+                    originalFileName = paths
+                            .filter(Files::isRegularFile)
+                            .filter(path -> path.getFileName().toString().endsWith(".json"))
+                            .filter(path -> {
+                                try {
+                                    LevelDefinition def = loader.load(path);
+                                    return currentLevelId.equals(def.id());
+                                } catch (Exception e) {
+                                    return false;
+                                }
+                            })
+                            .map(path -> path.getFileName().toString())
+                            .findFirst()
+                            .orElse(null);
+                }
+                
+                // 如果找到原始文件，使用原始文件名；否则使用id作为文件名
+                String fileName = (originalFileName != null) ? originalFileName : (currentLevelId + ".json");
                 Path filePath = levelsDir.resolve(fileName);
                 
-                // 使用Jackson序列化为JSON
+                // 保存到原文件（如果文件已存在，writeValue会自动覆盖）
                 ObjectMapper mapper = new ObjectMapper();
                 mapper.writerWithDefaultPrettyPrinter().writeValue(filePath.toFile(), levelDef);
                 
-                showAlert("成功", "地图 \"" + mapName.trim() + "\" 已成功保存！\n文件位置: " + filePath);
+                showAlert("成功", "地图已成功保存（覆盖原文件）！\n文件位置: " + filePath);
                 
                 // 触发保存回调（用于刷新选关界面）
                 if (onSaveCallback != null) {
@@ -634,7 +865,53 @@ public class LevelEditor {
                 showAlert("错误", "保存地图失败: " + e.getMessage());
                 e.printStackTrace();
             }
-        });
+        } else {
+            // 新建地图，弹出对话框让用户输入地图名称
+            TextInputDialog dialog = new TextInputDialog();
+            dialog.setTitle("保存地图");
+            dialog.setHeaderText("请输入地图名称");
+            dialog.setContentText("地图名称:");
+            
+            dialog.showAndWait().ifPresent(mapName -> {
+                if (mapName == null || mapName.trim().isEmpty()) {
+                    showAlert("错误", "地图名称不能为空！");
+                    return;
+                }
+                
+                // 生成唯一ID（基于名称和时间戳）
+                String id = generateId(mapName.trim());
+                
+                // 创建LevelDefinition
+                LevelDefinition levelDef = createLevelDefinition(id, mapName.trim());
+                
+                // 保存到文件
+                try {
+                    Path levelsDir = ResourceLocator.levelsDirectory();
+                    // 确保目录存在
+                    if (!Files.exists(levelsDir)) {
+                        Files.createDirectories(levelsDir);
+                    }
+                    
+                    // 生成文件名（基于ID）
+                    String fileName = id + ".json";
+                    Path filePath = levelsDir.resolve(fileName);
+                    
+                    // 使用Jackson序列化为JSON
+                    ObjectMapper mapper = new ObjectMapper();
+                    mapper.writerWithDefaultPrettyPrinter().writeValue(filePath.toFile(), levelDef);
+                    
+                    showAlert("成功", "地图 \"" + mapName.trim() + "\" 已成功保存！\n文件位置: " + filePath);
+                    
+                    // 触发保存回调（用于刷新选关界面）
+                    if (onSaveCallback != null) {
+                        onSaveCallback.run();
+                    }
+                } catch (Exception e) {
+                    showAlert("错误", "保存地图失败: " + e.getMessage());
+                    e.printStackTrace();
+                }
+            });
+        }
     }
     
     /**

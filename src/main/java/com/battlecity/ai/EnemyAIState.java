@@ -21,6 +21,9 @@ public class EnemyAIState {
     public boolean searchPhase1Complete = false; // 寻找模式第一阶段（向最后已知位置移动）是否完成
     public Vector2D intermediateTarget; // 两段移动的中间点
     public Vector2D originalTarget; // 原始目标位置（用于判断目标是否变化）
+    public Vector2D obstacleAvoidanceTarget; // 绕过障碍物的目标位置
+    public double obstacleAvoidanceTimer = 0.0; // 绕过障碍物计时器（避免无限尝试）
+    public int avoidanceAttempts = 0; // 绕过障碍物的尝试次数（防止无限递归）
     
     public void reset() {
         currentState = BehaviorState.PATROL;
@@ -35,6 +38,9 @@ public class EnemyAIState {
         searchPhase1Complete = false;
         intermediateTarget = null;
         originalTarget = null;
+        obstacleAvoidanceTarget = null;
+        obstacleAvoidanceTimer = 0.0;
+        avoidanceAttempts = 0;
     }
 }
 

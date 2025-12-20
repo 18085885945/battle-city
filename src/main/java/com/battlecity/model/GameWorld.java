@@ -490,9 +490,9 @@ public class GameWorld {
             //   小砖块大小为 16x16，摆放在 (x, y), (x+16, y), (x, y+16), (x+16, y+16)
             // - 这样：整体占用面积仍然是 32x32，地图布局尺寸不变，但视觉上砖块单位变小
             //
-            // 钢块仍然按 32x32 处理，保证其作为大块装甲墙的感觉。
+            // 钢块大小与单个砖块相同，为 16x16。
             Size smallBrickSize = new Size(16, 16);
-            Size steelSize = new Size(32, 32);
+            Size steelSize = new Size(16, 16);
 
             // 水路和草丛保持略大于坦克的尺寸，适当有一点重叠视觉效果即可
             Size terrainSize = new Size(34, 34);
