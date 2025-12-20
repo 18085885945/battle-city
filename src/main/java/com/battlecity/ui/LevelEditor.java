@@ -912,7 +912,7 @@ public class LevelEditor {
             try {
                 LevelDefinition levelDef = createLevelDefinition(currentLevelId, currentLevelName);
                 
-                Path levelsDir = ResourceLocator.levelsDirectory();
+                Path levelsDir = ResourceLocator.levelsFileSystemPath();
                 
                 // 确保目录存在
                 if (!Files.exists(levelsDir)) {
@@ -978,7 +978,7 @@ public class LevelEditor {
                 
                 // 保存到文件
                 try {
-                    Path levelsDir = ResourceLocator.levelsDirectory();
+                    Path levelsDir = ResourceLocator.levelsFileSystemPath();
                     // 确保目录存在
                     if (!Files.exists(levelsDir)) {
                         Files.createDirectories(levelsDir);

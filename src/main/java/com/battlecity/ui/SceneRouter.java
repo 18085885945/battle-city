@@ -1126,7 +1126,7 @@ public class SceneRouter implements SceneRouterFacade {
                         // 确认删除
                         try {
                             // 获取关卡文件路径
-                            Path levelsDir = ResourceLocator.levelsDirectory();
+                            Path levelsDir = ResourceLocator.levelsFileSystemPath();
                             String fileName = level.id() + ".json";
                             Path filePath = levelsDir.resolve(fileName);
                             
@@ -1180,7 +1180,7 @@ public class SceneRouter implements SceneRouterFacade {
     private List<LevelDefinition> reloadLevels() {
         try {
             LevelLoader loader = new LevelLoader();
-            Path levelsDir = ResourceLocator.levelsDirectory();
+            Path levelsDir = ResourceLocator.levelsFileSystemPath();
             return Files.list(levelsDir)
                     .filter(Files::isRegularFile)
                     .filter(path -> path.getFileName().toString().endsWith(".json"))
