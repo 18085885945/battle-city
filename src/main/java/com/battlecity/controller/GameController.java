@@ -22,6 +22,8 @@ public class GameController {
 
     public void bindWorld(GameWorld world) {
         this.world = world;
+        // 重置输入状态，清除上一关的按键状态
+        inputController.reset();
         inputController.bindWorld(world);
     }
 
@@ -35,13 +37,39 @@ public class GameController {
             world.savePlayerPositionBeforeMove();
         }
         
-        // 处理输入并获取可能产生的子弹
+        // 处理输入并获取可能产生的子弹和激光
         // 注意：processInputs 会移动坦克，但移动后会在 handlePlayerTankCollisions 中检测并回退
-        com.battlecity.model.projectile.Bullet newBullet = inputController.processInputs(deltaSeconds);
-        if (newBullet != null) {
-            world.addPlayerBullet(newBullet);
+        com.battlecity.controller.InputController.InputResult inputResult = inputController.processInputs(deltaSeconds);
+        
+        // 处理子弹
+        if (inputResult.bullets() != null && !inputResult.bullets().isEmpty()) {
+            for (com.battlecity.model.projectile.Bullet bullet : inputResult.bullets()) {
+                world.addPlayerBullet(bullet);
+            }
             // 播放开火音效
             com.battlecity.audio.AudioManager.getInstance().playSound("fire");
+        }
+        
+        // 处理激光（蓄力和发射）
+        if (world.playerTank() != null && world.playerTank().alive()) {
+            boolean fireKeyPressed = inputController.getPressedKeys().contains(javafx.scene.input.KeyCode.SPACE) ||
+                                    inputController.getPressedKeys().contains(javafx.scene.input.KeyCode.ENTER);
+            
+            if (fireKeyPressed && world.playerTank().getLaserAmmo() > 0) {
+                java.util.List<com.battlecity.model.projectile.Laser> lasers = world.playerTank().tryFireLaser(
+                    deltaSeconds, 
+                    world.levelDefinition().width(), 
+                    world.levelDefinition().height()
+                );
+                if (lasers != null && !lasers.isEmpty()) {
+                    // 激光发射成功，添加所有激光
+                    for (com.battlecity.model.projectile.Laser laser : lasers) {
+                        world.addLaser(laser);
+                    }
+                    // 播放激光音效（如果有）
+                    com.battlecity.audio.AudioManager.getInstance().playSound("fire");
+                }
+            }
         }
         
         // 更新世界（包括碰撞检测和回退）

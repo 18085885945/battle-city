@@ -15,5 +15,13 @@ public enum PowerUpType {
     /** 恢复坦克生命值 */
     HEALTH_RESTORE,
     /** 冻结所有敌方坦克 */
-    FREEZE
+    FREEZE,
+    /** 激光武器 */
+    LASER,
+    /** 散射子弹武器 */
+    SCATTER_SHOT,
+    /** 气垫装备 */
+    HOVERCRAFT,
+    /** 空袭道具 */
+    AIRSTRIKE
 }

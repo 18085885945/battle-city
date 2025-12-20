@@ -5,6 +5,7 @@ import com.battlecity.map.LevelDefinition;
 import com.battlecity.map.ObstacleDefinition;
 import com.battlecity.map.TileType;
 import com.battlecity.model.projectile.Bullet;
+import com.battlecity.model.projectile.Laser;
 import com.battlecity.model.powerup.PowerUp;
 import com.battlecity.model.powerup.PowerUpFactory;
 import com.battlecity.model.powerup.PowerUpType;
@@ -43,14 +44,16 @@ public class GameWorld {
     private final List<Bullet> enemyBullets = new ArrayList<>();
     private final List<EnemyTank> enemyTanks = new ArrayList<>();
     private final List<PowerUp> powerUps = new ArrayList<>(); // 道具列表
+    private final List<Laser> lasers = new ArrayList<>(); // 激光列表
     private final CollisionDetector collisionDetector = new CollisionDetector();
     private final com.battlecity.ai.EnemyAIController aiController = new com.battlecity.ai.EnemyAIController();
     private final EffectManager effectManager = new EffectManager();
     
     // 敌对坦克生成相关
     private static final int MAX_ENEMY_ON_FIELD = 6; // 场上最大敌对坦克数量
-    private static final double ENEMY_SPAWN_INTERVAL_NORMAL = 5.0; // 正常生成间隔（秒）
+    private static final double ENEMY_SPAWN_INTERVAL_NORMAL = 5.0; // 正常生成间隔（秒，默认值）
     private static final double ENEMY_SPAWN_INTERVAL_FORCE = 20.0; // 强制生成间隔（秒）
+    private double enemySpawnInterval = ENEMY_SPAWN_INTERVAL_NORMAL; // 当前关卡使用的刷新间隔
     private double enemySpawnTimer = 0.0; // 生成计时器
     
     // 胜利条件相关
@@ -64,6 +67,9 @@ public class GameWorld {
     private boolean hasFirstEliteTank = false; // 是否已经生成了第一个精英坦克
     private boolean hasGuaranteedElite = false; // 是否已经确保了本关至少有一个精英坦克
     private EnemyTank firstEliteTank = null; // 第一个生成的精英坦克
+    
+    // 用于跟踪已经计数的死亡敌人，避免重复计数
+    private final java.util.Set<EnemyTank> countedDeadEnemies = new java.util.HashSet<>();
 
     private GameWorld(LevelDefinition levelDefinition, PlayerTank playerTank, Base base) {
         this.levelDefinition = levelDefinition;
@@ -71,19 +77,26 @@ public class GameWorld {
         this.base = base;
         // 计算当前关卡需要击杀的总敌人数
         this.totalEnemiesToDefeat = calculateTotalEnemies(levelDefinition);
+        // 从关卡定义中读取敌人刷新间隔
+        if (levelDefinition.enemySpawnInterval() != null) {
+            this.enemySpawnInterval = levelDefinition.enemySpawnInterval();
+        }
     }
     
     /**
      * 随机选择敌方坦克类型
-     * 80%概率普通，20%概率精英（精英类型随机分配）
+     * 根据关卡配置的精英怪出现频率决定
      * @return 随机选择的敌方坦克类型
      */
-    private static EnemyTier randomEnemyTier() {
-        if (Math.random() < 0.8) {
-            // 80%概率普通
+    private EnemyTier randomEnemyTier() {
+        // 从关卡定义中读取精英怪出现频率，默认为0.2（20%）
+        double eliteRate = levelDefinition.eliteSpawnRate() != null ? levelDefinition.eliteSpawnRate() : 0.2;
+        
+        if (Math.random() < (1.0 - eliteRate)) {
+            // 普通坦克
             return EnemyTier.NORMAL;
         } else {
-            // 20%概率精英，随机选择4种精英类型之一
+            // 精英坦克，随机选择4种精英类型之一
             return getRandomEliteTier();
         }
     }
@@ -214,7 +227,7 @@ public class GameWorld {
                     tier = getRandomEliteTier();
                     hasElite = true;
                 } else {
-                    tier = randomEnemyTier();
+                    tier = world.randomEnemyTier();
                     if (tier.isElite()) {
                         hasElite = true;
                     }
@@ -521,6 +534,42 @@ public class GameWorld {
         // 更新玩家坦克（tick用于更新冷却时间等）
         if (playerTank.alive()) {
             playerTank.tick(deltaSeconds);
+            
+            // 检查气垫效果消失后的宽限期内，如果坦克80%体积在水中则游戏失败
+            if (playerTank.isInHovercraftGracePeriod() && playerTank.alive()) {
+                // 计算坦克在水中体积的百分比
+                double tankArea = playerTank.size().width() * playerTank.size().height();
+                double waterOverlapArea = 0.0;
+                
+                // 检查所有水路，计算重叠面积
+                for (Obstacle obstacle : obstacles) {
+                    if (obstacle instanceof River) {
+                        // 计算坦克和水路的重叠面积
+                        double overlapLeft = Math.max(playerTank.left(), obstacle.left());
+                        double overlapRight = Math.min(playerTank.right(), obstacle.right());
+                        double overlapTop = Math.max(playerTank.top(), obstacle.top());
+                        double overlapBottom = Math.min(playerTank.bottom(), obstacle.bottom());
+                        
+                        if (overlapLeft < overlapRight && overlapTop < overlapBottom) {
+                            double overlapArea = (overlapRight - overlapLeft) * (overlapBottom - overlapTop);
+                            waterOverlapArea += overlapArea;
+                        }
+                    }
+                }
+                
+                // 计算水中体积百分比
+                double waterPercentage = tankArea > 0 ? waterOverlapArea / tankArea : 0.0;
+                
+                // 如果80%体积在水中，游戏失败
+                if (waterPercentage >= 0.8) {
+                    // 设置游戏失败原因
+                    setGameOverReason("WATER"); // 可以添加新的失败原因
+                    // 播放爆炸音效
+                    AudioManager.getInstance().playSound("explosion");
+                    // 创建爆炸特效
+                    effectManager.addEffect(new ExplosionEffect(playerTank.center(), 0.5, 20.0));
+                }
+            }
         } else {
             // 玩家坦克死亡时重置位置记录
             lastPlayerPosition = null;
@@ -531,24 +580,38 @@ public class GameWorld {
         while (enemyIterator.hasNext()) {
             EnemyTank enemy = enemyIterator.next();
             if (!enemy.alive()) {
-                // 敌方坦克死亡，检查是否是精英坦克
+                // 检查敌人是否已经被计数（避免重复计数）
+                // 被子弹击杀的情况在handleBulletCollisions中已经计数
+                if (!countedDeadEnemies.contains(enemy)) {
+                    // 敌方坦克死亡，增加击杀计数（用于空袭、激光等非子弹击杀的情况）
+                    enemiesKilled++;
+                    countedDeadEnemies.add(enemy); // 标记为已计数
+                    // 播放爆炸音效
+                    AudioManager.getInstance().playSound("explosion");
+                    // 创建爆炸特效
+                    createExplosion(enemy.center(), 30, 0.5);
+                }
+                
+                // 检查是否是精英坦克
                 if (enemy.tier() != EnemyTier.NORMAL) {
                     PowerUp powerUp;
-                    // 检查是否是第一个精英坦克，如果是，100%掉落道具
+                    // 第一个精英坦克不再保证100%掉落道具，使用和其他精英怪相同的逻辑
                     if (enemy == firstEliteTank) {
-                        // 第一个精英坦克，100%掉落道具
-                        // 确保生成道具，重试直到成功
-                        do {
-                            powerUp = PowerUpFactory.createPowerUp(
-                                enemy.center(), 
-                                PowerUpType.values()[new Random().nextInt(PowerUpType.values().length)]
-                            );
-                        } while (powerUp == null);
+                        // 第一个精英坦克，先尝试10%概率掉落武器
+                        powerUp = PowerUpFactory.createWeapon(enemy.center());
+                        // 如果没掉落武器，则50%概率掉落普通道具
+                        if (powerUp == null) {
+                            powerUp = PowerUpFactory.createRandomPowerUp(enemy.center());
+                        }
                         // 清除第一个精英坦克标记
                         firstEliteTank = null;
                     } else {
-                        // 其他精英坦克，50%概率掉落道具
-                        powerUp = PowerUpFactory.createRandomPowerUp(enemy.center());
+                        // 其他精英坦克，先尝试10%概率掉落武器
+                        powerUp = PowerUpFactory.createWeapon(enemy.center());
+                        // 如果没掉落武器，则50%概率掉落普通道具
+                        if (powerUp == null) {
+                            powerUp = PowerUpFactory.createRandomPowerUp(enemy.center());
+                        }
                     }
                     if (powerUp != null) {
                         powerUps.add(powerUp);
@@ -556,6 +619,7 @@ public class GameWorld {
                 }
                 enemyIterator.remove();
                 lastEnemyPositions.remove(enemy);
+                countedDeadEnemies.remove(enemy); // 清理已计数的标记
                 continue;
             }
             enemy.tick(deltaSeconds);
@@ -566,6 +630,9 @@ public class GameWorld {
         
         // 更新道具
         updatePowerUps(deltaSeconds);
+        
+        // 更新激光
+        updateLasers(deltaSeconds);
         
         // 生成新的敌对坦克
         enemySpawnTimer += deltaSeconds;
@@ -600,18 +667,26 @@ public class GameWorld {
         } else {
             // 非无尽模式：使用原有规则
             // 生成条件：
-            // 1. 如果场上敌方坦克数 < 2，每次刷新都尝试生成，直到达到2辆
-            // 2. 否则：敌方坦克数 < 6 且 距离上次生成 >= 5秒
-            // 3. 或者 距离上次生成 >= 20秒（强制生成）
-            // 4. 如果关卡剩余敌人数量过小（小于需要补充的数量），则不再生成
-            if (currentEnemyCount < 2) {
+            // 1. 如果场上敌方坦克数 == 0，立即尝试生成，不等待计时器
+            // 2. 如果场上敌方坦克数 < 2，每次刷新都尝试生成，直到达到2辆
+            // 3. 否则：敌方坦克数 < 6 且 距离上次生成 >= 5秒
+            // 4. 或者 距离上次生成 >= 20秒（强制生成）
+            // 5. 如果关卡剩余敌人数量过小（小于需要补充的数量），则不再生成
+            if (currentEnemyCount == 0) {
+                // 场上没有敌人，立即尝试生成，不等待计时器
+                needToSpawn = 1;
+                // 检查是否还有剩余敌人需要生成
+                if (enemiesSpawned < totalEnemiesToDefeat && remainingEnemies >= needToSpawn) {
+                    shouldSpawn = true;
+                }
+            } else if (currentEnemyCount < 2) {
                 // 场上坦克数小于2，尝试补充到2辆
                 needToSpawn = 2 - currentEnemyCount;
                 // 检查剩余敌人数量是否足够
                 if (remainingEnemies >= needToSpawn) {
                     shouldSpawn = true;
                 }
-            } else if (currentEnemyCount < MAX_ENEMY_ON_FIELD && enemySpawnTimer >= ENEMY_SPAWN_INTERVAL_NORMAL) {
+            } else if (currentEnemyCount < MAX_ENEMY_ON_FIELD && enemySpawnTimer >= enemySpawnInterval) {
                 // 场上坦克数在2-6之间，按正常间隔生成
                 needToSpawn = 1;
                 // 检查剩余敌人数量是否足够
@@ -653,9 +728,16 @@ public class GameWorld {
                         lastEnemyPositions.put(newEnemy, newEnemy.position());
                         enemiesSpawned++; // 增加已生成敌人计数
                         enemySpawnTimer = 0.0; // 重置计时器
+                    } else {
+                        // 如果生成失败（位置被占用）
+                        // 如果场上坦克数为0，不重置计时器，下次刷新会立即继续尝试生成
+                        // 如果场上坦克数 >= 2，不重置计时器，继续累积时间，等待下次生成时机
+                        if (currentEnemyCount > 0) {
+                            // 场上还有敌人，生成失败不影响，等待下次生成时机
+                        } else {
+                            // 场上没有敌人，生成失败，下次刷新会立即继续尝试（因为currentEnemyCount == 0）
+                        }
                     }
-                    // 如果生成失败（位置被占用），不重置计时器，继续累积时间
-                    // 但如果场上坦克数 < 2，下次刷新会继续尝试生成
                 }
             }
         }
@@ -688,11 +770,15 @@ public class GameWorld {
                     }
                     // 如果敌人被击杀，增加击杀计数
                     if (!enemy.alive()) {
-                        enemiesKilled++;
-                        // 播放爆炸音效
-                        com.battlecity.audio.AudioManager.getInstance().playSound("explosion");
-                        // 创建爆炸特效
-                        createExplosion(enemy.center(), 30, 0.5);
+                        // 检查是否已经计数（避免重复计数）
+                        if (!countedDeadEnemies.contains(enemy)) {
+                            enemiesKilled++;
+                            countedDeadEnemies.add(enemy); // 标记为已计数
+                            // 播放爆炸音效
+                            com.battlecity.audio.AudioManager.getInstance().playSound("explosion");
+                            // 创建爆炸特效
+                            createExplosion(enemy.center(), 30, 0.5);
+                        }
                     }
                     hitEnemy = true;
                     break;
@@ -745,6 +831,9 @@ public class GameWorld {
         // 检测玩家与道具的碰撞
         handlePowerUpCollection();
         
+        // 处理激光碰撞
+        handleLaserCollisions();
+        
         // 更新特效
         effectManager.update(deltaSeconds);
         
@@ -770,23 +859,178 @@ public class GameWorld {
     }
     
     /**
-     * 处理玩家与道具的碰撞
+     * 更新激光
+     */
+    private void updateLasers(double deltaSeconds) {
+        Iterator<Laser> laserIterator = lasers.iterator();
+        while (laserIterator.hasNext()) {
+            Laser laser = laserIterator.next();
+            laser.update(deltaSeconds);
+            if (!laser.alive()) {
+                laserIterator.remove();
+            }
+        }
+    }
+    
+    /**
+     * 处理激光碰撞
+     */
+    private void handleLaserCollisions() {
+        Iterator<Laser> laserIterator = lasers.iterator();
+        while (laserIterator.hasNext()) {
+            Laser laser = laserIterator.next();
+            if (!laser.alive()) {
+                continue;
+            }
+            
+            // 大激光可以破坏障碍物
+            if (laser.isMegaLaser()) {
+                // 检查大激光是否击中障碍物（砖块、钢墙、草丛，但不包括水路）
+                List<BrickWall> destroyedBricks = new ArrayList<>();
+                List<SteelWall> destroyedSteelWalls = new ArrayList<>();
+                List<TerrainTile> destroyedTerrains = new ArrayList<>();
+                
+                // 检查砖块和钢墙
+                Iterator<Obstacle> obstacleIterator = obstacles.iterator();
+                while (obstacleIterator.hasNext()) {
+                    Obstacle obstacle = obstacleIterator.next();
+                    // 水路不能被破坏，跳过
+                    if (obstacle instanceof River) {
+                        continue;
+                    }
+                    
+                    // 检查障碍物中心是否在激光路径上
+                    Vector2D obstacleCenter = new Vector2D(
+                        obstacle.left() + obstacle.size().width() / 2.0,
+                        obstacle.top() + obstacle.size().height() / 2.0
+                    );
+                    double tolerance = Math.max(obstacle.size().width(), obstacle.size().height()) / 2.0;
+                    if (laser.pointOnLaser(obstacleCenter, tolerance)) {
+                        if (obstacle instanceof BrickWall) {
+                            destroyedBricks.add((BrickWall) obstacle);
+                        } else if (obstacle instanceof SteelWall) {
+                            destroyedSteelWalls.add((SteelWall) obstacle);
+                        }
+                    }
+                }
+                
+                // 检查草丛（地形）
+                Iterator<TerrainTile> terrainIterator = terrains.iterator();
+                while (terrainIterator.hasNext()) {
+                    TerrainTile terrain = terrainIterator.next();
+                    Vector2D terrainCenter = terrain.position().add(
+                        new Vector2D(terrain.size().width() / 2.0, terrain.size().height() / 2.0)
+                    );
+                    double tolerance = Math.max(terrain.size().width(), terrain.size().height()) / 2.0;
+                    if (laser.pointOnLaser(terrainCenter, tolerance)) {
+                        destroyedTerrains.add(terrain);
+                    }
+                }
+                
+                // 移除被破坏的障碍物和地形
+                obstacles.removeAll(destroyedBricks);
+                obstacles.removeAll(destroyedSteelWalls);
+                terrains.removeAll(destroyedTerrains);
+                
+                if (!destroyedBricks.isEmpty() || !destroyedSteelWalls.isEmpty() || !destroyedTerrains.isEmpty()) {
+                    // 播放破坏音效
+                    AudioManager.getInstance().playSound("hit_brick");
+                }
+            }
+            
+            // 检查激光是否击中敌方坦克
+            Iterator<EnemyTank> enemyIterator = enemyTanks.iterator();
+            while (enemyIterator.hasNext()) {
+                EnemyTank enemy = enemyIterator.next();
+                if (enemy.alive()) {
+                    // 检查敌方坦克中心是否在激光路径上
+                    Vector2D enemyCenter = enemy.center();
+                    double tolerance = laser.isMegaLaser() ? 16.0 : 13.0; // 大激光容差更大
+                    if (laser.pointOnLaser(enemyCenter, tolerance)) {
+                        // 激光击中敌方坦克，瞬间击杀
+                        enemy.takeDamage(999); // 足够大的伤害值
+                        // 播放爆炸音效
+                        AudioManager.getInstance().playSound("explosion");
+                        // 创建爆炸特效
+                        effectManager.addEffect(new ExplosionEffect(enemyCenter, 0.5, 20.0));
+                    }
+                }
+            }
+        }
+    }
+    
+    /**
+     * 添加激光
+     */
+    public void addLaser(Laser laser) {
+        lasers.add(laser);
+    }
+    
+    /**
+     * 获取激光列表
+     */
+    public List<Laser> lasers() {
+        return lasers;
+    }
+    
+    /**
+     * 处理玩家与道具的碰撞，以及敌方坦克与武器的碰撞
      */
     private void handlePowerUpCollection() {
-        if (!playerTank.alive()) {
-            return;
-        }
-        
         Iterator<PowerUp> powerUpIterator = powerUps.iterator();
         while (powerUpIterator.hasNext()) {
             PowerUp powerUp = powerUpIterator.next();
-            if (collisionDetector.collide(playerTank, powerUp)) {
+            
+            // 检查是否是武器（激光、散射子弹、气垫）
+            boolean isWeapon = powerUp.getType() == PowerUpType.LASER || 
+                              powerUp.getType() == PowerUpType.SCATTER_SHOT ||
+                              powerUp.getType() == PowerUpType.HOVERCRAFT;
+            
+            // 如果玩家坦克存活，检查玩家是否拾取道具
+            if (playerTank.alive() && collisionDetector.collide(playerTank, powerUp)) {
                 // 播放道具拾取音效
                 AudioManager.getInstance().playSound("powerup");
                 // 应用道具效果
                 powerUp.applyEffect(playerTank);
                 powerUp.applyGlobalEffect(this);
                 powerUpIterator.remove();
+                continue;
+            }
+            
+            // 如果是武器，检查敌方坦克是否碰撞（敌方坦克碰到武器会消失）
+            if (isWeapon) {
+                for (EnemyTank enemy : enemyTanks) {
+                    if (enemy.alive() && collisionDetector.collide(enemy, powerUp)) {
+                        // 敌方坦克碰到武器，武器消失
+                        powerUpIterator.remove();
+                        break;
+                    }
+                }
+            }
+            
+            // 如果是空袭道具，检查敌方坦克是否碰撞
+            if (powerUp.getType() == PowerUpType.AIRSTRIKE) {
+                for (EnemyTank enemy : enemyTanks) {
+                    if (enemy.alive() && collisionDetector.collide(enemy, powerUp)) {
+                        // 敌方坦克拾取空袭道具，向我方基地和坦克发动空袭
+                        // 扣除基地2点血
+                        base.damage();
+                        base.damage();
+                        // 扣除玩家坦克1点血
+                        if (playerTank.alive()) {
+                            playerTank.takeDamage(1);
+                        }
+                        // 播放爆炸音效
+                        AudioManager.getInstance().playSound("explosion");
+                        // 创建爆炸特效
+                        effectManager.addEffect(new ExplosionEffect(base.center(), 0.5, 20.0));
+                        if (playerTank.alive()) {
+                            effectManager.addEffect(new ExplosionEffect(playerTank.center(), 0.5, 20.0));
+                        }
+                        powerUpIterator.remove();
+                        break;
+                    }
+                }
             }
         }
     }
@@ -894,6 +1138,41 @@ public class GameWorld {
      */
     public void increaseScore() {
         score++;
+    }
+    
+    /**
+     * 执行控制台命令
+     * @param command 命令字符串
+     * @return 命令执行结果消息
+     */
+    public String executeConsoleCommand(String command) {
+        if (command == null || command.trim().isEmpty()) {
+            return "";
+        }
+        
+        String cmd = command.trim().toLowerCase();
+        
+        if (cmd.equals("kill")) {
+            // 秒杀所有敌人
+            int killed = 0;
+            for (EnemyTank enemy : enemyTanks) {
+                if (enemy.alive()) {
+                    enemy.takeDamage(999);
+                    killed++;
+                }
+            }
+            return "已秒杀 " + killed + " 个敌人";
+        } else if (cmd.equals("god")) {
+            // 切换无敌模式
+            if (playerTank != null) {
+                boolean newState = !playerTank.isGodMode();
+                playerTank.setGodMode(newState);
+                return newState ? "无敌模式已开启" : "无敌模式已关闭";
+            }
+            return "玩家坦克不存在";
+        } else {
+            return "未知命令: " + command;
+        }
     }
     
     private void checkGameOver() {
@@ -1048,8 +1327,22 @@ public class GameWorld {
         }
 
         // 玩家坦克与障碍物碰撞 - 直接阻止，不移动
+        // 如果激活了气垫，可以穿过水路
+        // 如果气垫效果消失后的宽限期内，也可以穿过水路（但会在update中检查是否80%体积在水中）
         for (Obstacle obstacle : obstacles) {
             if (collisionDetector.collide(playerTank, obstacle)) {
+                // 如果是水路
+                if (obstacle instanceof River) {
+                    // 激活了气垫，允许通过
+                    if (playerTank.isHovercraftActive()) {
+                        continue; // 跳过水路碰撞检测
+                    }
+                    // 气垫效果消失后的宽限期内，也允许通过（但会在update中检查是否80%体积在水中导致失败）
+                    if (playerTank.isInHovercraftGracePeriod()) {
+                        continue; // 跳过水路碰撞检测，允许移动
+                    }
+                    // 其他情况：阻挡移动，不导致失败
+                }
                 playerTank.setPosition(originalPos);
                 lastPlayerPosition = originalPos;
                 return;

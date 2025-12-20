@@ -13,12 +13,14 @@ import javafx.scene.canvas.Canvas;
 import javafx.scene.canvas.GraphicsContext;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
+import javafx.scene.control.TextField;
 import javafx.scene.input.KeyCode;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.paint.Color;
 import javafx.animation.AnimationTimer;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
+import javafx.scene.layout.StackPane;
 import javafx.scene.layout.Priority;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Separator;
@@ -271,6 +273,53 @@ public class SceneRouter implements SceneRouterFacade {
         gameView.setHeight(mapHeight);
         
         root.setCenter(gameView);
+        
+        // 创建控制台UI（显示在底部，覆盖基地区域）
+        VBox consoleContainer = new VBox();
+        consoleContainer.setStyle("-fx-background-color: rgba(0, 0, 0, 0.9); -fx-border-color: #00ff00; -fx-border-width: 2px 0 0 0;");
+        consoleContainer.setVisible(false);
+        consoleContainer.setManaged(false);
+        consoleContainer.setAlignment(javafx.geometry.Pos.TOP_LEFT);
+        consoleContainer.setPadding(new Insets(15));
+        consoleContainer.setSpacing(10);
+        
+        VBox consoleBox = new VBox(10);
+        consoleBox.setAlignment(javafx.geometry.Pos.TOP_LEFT);
+        consoleBox.setMaxWidth(Double.MAX_VALUE);
+        
+        Label consoleTitle = new Label("控制台");
+        consoleTitle.setStyle("-fx-text-fill: #00ff00; -fx-font-size: 16px; -fx-font-weight: bold;");
+        
+        HBox inputBox = new HBox(10);
+        inputBox.setAlignment(javafx.geometry.Pos.CENTER_LEFT);
+        
+        Label promptLabel = new Label(">");
+        promptLabel.setStyle("-fx-text-fill: #00ff00; -fx-font-size: 14px; -fx-font-family: 'Courier New', monospace;");
+        
+        TextField consoleInput = new TextField();
+        consoleInput.setStyle("-fx-background-color: #1a1a1a; -fx-text-fill: #00ff00; -fx-font-size: 14px; -fx-font-family: 'Courier New', monospace; -fx-border-color: #00ff00; -fx-border-width: 1px;");
+        consoleInput.setPromptText("输入命令... (kill, god)");
+        HBox.setHgrow(consoleInput, Priority.ALWAYS);
+        
+        inputBox.getChildren().addAll(promptLabel, consoleInput);
+        
+        Label consoleOutput = new Label();
+        consoleOutput.setStyle("-fx-text-fill: #00ff00; -fx-font-size: 12px; -fx-font-family: 'Courier New', monospace;");
+        consoleOutput.setWrapText(true);
+        consoleOutput.setMaxWidth(Double.MAX_VALUE);
+        consoleOutput.setPrefHeight(40);
+        
+        Label consoleHint = new Label("按 ESC 关闭控制台 | 按 Enter 执行命令");
+        consoleHint.setStyle("-fx-text-fill: #888888; -fx-font-size: 11px;");
+        
+        consoleBox.getChildren().addAll(consoleTitle, inputBox, consoleOutput, consoleHint);
+        consoleContainer.getChildren().add(consoleBox);
+        
+        // 将控制台添加到根节点的底部（覆盖基地区域）
+        root.setBottom(consoleContainer);
+        
+        // 控制台状态
+        final boolean[] consoleOpen = {false};
 
         // 创建HUD
         HBox hud = new HBox(20);
@@ -412,6 +461,66 @@ public class SceneRouter implements SceneRouterFacade {
         gameScene.getProperties().put("sceneHeight", sceneHeight);
         
         gameScene.setOnKeyPressed(e -> {
+            // 控制台功能：波浪键（~）打开/关闭控制台
+            if (e.getCode() == KeyCode.BACK_QUOTE || e.getCode() == KeyCode.QUOTE) {
+                // 切换控制台显示状态
+                consoleOpen[0] = !consoleOpen[0];
+                consoleContainer.setVisible(consoleOpen[0]);
+                consoleContainer.setManaged(consoleOpen[0]);
+                
+                if (consoleOpen[0]) {
+                    // 打开控制台时，暂停游戏
+                    if (engine != null && !engine.isPaused()) {
+                        engine.pause();
+                    }
+                    // 请求焦点到输入框
+                    consoleInput.requestFocus();
+                } else {
+                    // 关闭控制台时，清空输入和输出
+                    consoleInput.clear();
+                    consoleOutput.setText("");
+                    // 恢复游戏
+                    if (engine != null && engine.isPaused()) {
+                        engine.resume();
+                    }
+                    // 恢复游戏输入焦点
+                    root.requestFocus();
+                }
+                e.consume(); // 消耗事件，防止触发其他处理
+                return;
+            }
+            
+            // 如果控制台打开，处理控制台相关按键
+            if (consoleOpen[0]) {
+                if (e.getCode() == KeyCode.ESCAPE) {
+                    // ESC关闭控制台
+                    consoleOpen[0] = false;
+                    consoleContainer.setVisible(false);
+                    consoleContainer.setManaged(false);
+                    consoleInput.clear();
+                    consoleOutput.setText("");
+                    // 恢复游戏
+                    if (engine != null && engine.isPaused()) {
+                        engine.resume();
+                    }
+                    root.requestFocus();
+                    e.consume();
+                    return;
+                } else if (e.getCode() == KeyCode.ENTER) {
+                    // Enter执行命令
+                    String command = consoleInput.getText().trim();
+                    if (!command.isEmpty()) {
+                        String result = world.executeConsoleCommand(command);
+                        consoleOutput.setText(result.isEmpty() ? "命令已执行" : result);
+                        consoleInput.clear();
+                    }
+                    e.consume();
+                    return;
+                }
+                // 控制台打开时，不处理其他按键（让TextField处理）
+                return;
+            }
+            
             // 暂停功能（P键或ESC）：切换暂停/继续状态
             if (e.getCode() == KeyCode.P || e.getCode() == KeyCode.ESCAPE) {
                 if (engine != null) {
@@ -433,6 +542,11 @@ public class SceneRouter implements SceneRouterFacade {
             }
         });
         gameScene.setOnKeyReleased(e -> {
+            // 如果控制台打开，不处理按键释放事件
+            if (consoleOpen[0]) {
+                return;
+            }
+            
             GameController controller = getController(engine);
             if (controller != null) {
                 controller.onKeyReleased(e.getCode());

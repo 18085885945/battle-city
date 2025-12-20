@@ -47,8 +47,34 @@ public class PowerUpFactory {
                 return new HealthRestorePowerUp(position);
             case FREEZE:
                 return new FreezePowerUp(position);
+            case LASER:
+                return new LaserWeapon(position);
+            case SCATTER_SHOT:
+                return new ScatterShotWeapon(position);
+            case HOVERCRAFT:
+                return new HovercraftWeapon(position);
+            case AIRSTRIKE:
+                return new AirstrikePowerUp(position);
             default:
                 throw new IllegalArgumentException("未知的道具类型: " + type);
         }
+    }
+    
+    /**
+     * 创建武器（10%概率）
+     * @param position 生成位置
+     * @return 武器道具，如果未生成则返回null
+     */
+    public static PowerUp createWeapon(Vector2D position) {
+        // 10%概率生成武器
+        if (random.nextDouble() < 0.1) {
+            // 50%概率激光，50%概率散射子弹
+            if (random.nextDouble() < 0.5) {
+                return new LaserWeapon(position);
+            } else {
+                return new ScatterShotWeapon(position);
+            }
+        }
+        return null;
     }
 }

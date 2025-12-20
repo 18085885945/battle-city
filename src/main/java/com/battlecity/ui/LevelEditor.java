@@ -72,6 +72,10 @@ public class LevelEditor {
     private List<ObstacleDefinition> obstacles = new ArrayList<>();
     private String currentLevelId = null; // 当前编辑的地图ID（用于修改时覆盖原文件）
     private String currentLevelName = null; // 当前编辑的地图名称（用于修改时保留原名称）
+    
+    // 敌人刷新速率和精英怪出现频率
+    private Double enemySpawnInterval = 5.0; // 默认5秒（中等）
+    private Double eliteSpawnRate = 0.2; // 默认20%（中等）
     private Canvas mapCanvas;
     private GraphicsContext gc;
     private CollisionDetector collisionDetector = new CollisionDetector();
@@ -121,6 +125,8 @@ public class LevelEditor {
             currentLevelId = null;
             currentLevelName = null;
             obstacles.clear();
+            enemySpawnInterval = 5.0; // 重置为默认值
+            eliteSpawnRate = 0.2; // 重置为默认值
         }
         
         return createEditorScene();
@@ -241,6 +247,70 @@ public class LevelEditor {
         HBox obstacleBox = new HBox(5, obstacleLabel, brickBtn, steelBtn, riverBtn, grassBtn, eraserBtn);
         obstacleBox.setAlignment(Pos.CENTER_LEFT);
         
+        // 敌人刷新速率选择
+        Label spawnRateLabel = new Label("刷新速率：");
+        ToggleGroup spawnRateGroup = new ToggleGroup();
+        RadioButton fastSpawnBtn = new RadioButton("快(3s)");
+        fastSpawnBtn.setToggleGroup(spawnRateGroup);
+        RadioButton mediumSpawnBtn = new RadioButton("中(5s)");
+        mediumSpawnBtn.setToggleGroup(spawnRateGroup);
+        RadioButton slowSpawnBtn = new RadioButton("慢(7s)");
+        slowSpawnBtn.setToggleGroup(spawnRateGroup);
+        
+        // 根据当前值设置选中状态
+        if (enemySpawnInterval != null) {
+            if (Math.abs(enemySpawnInterval - 3.0) < 0.1) {
+                fastSpawnBtn.setSelected(true);
+            } else if (Math.abs(enemySpawnInterval - 5.0) < 0.1) {
+                mediumSpawnBtn.setSelected(true);
+            } else if (Math.abs(enemySpawnInterval - 7.0) < 0.1) {
+                slowSpawnBtn.setSelected(true);
+            } else {
+                mediumSpawnBtn.setSelected(true);
+            }
+        } else {
+            mediumSpawnBtn.setSelected(true);
+        }
+        
+        fastSpawnBtn.setOnAction(e -> enemySpawnInterval = 3.0);
+        mediumSpawnBtn.setOnAction(e -> enemySpawnInterval = 5.0);
+        slowSpawnBtn.setOnAction(e -> enemySpawnInterval = 7.0);
+        
+        HBox spawnRateBox = new HBox(5, spawnRateLabel, fastSpawnBtn, mediumSpawnBtn, slowSpawnBtn);
+        spawnRateBox.setAlignment(Pos.CENTER_LEFT);
+        
+        // 精英怪出现频率选择
+        Label eliteRateLabel = new Label("精英频率：");
+        ToggleGroup eliteRateGroup = new ToggleGroup();
+        RadioButton lowEliteBtn = new RadioButton("低(15%)");
+        lowEliteBtn.setToggleGroup(eliteRateGroup);
+        RadioButton mediumEliteBtn = new RadioButton("中(20%)");
+        mediumEliteBtn.setToggleGroup(eliteRateGroup);
+        RadioButton highEliteBtn = new RadioButton("高(25%)");
+        highEliteBtn.setToggleGroup(eliteRateGroup);
+        
+        // 根据当前值设置选中状态
+        if (eliteSpawnRate != null) {
+            if (Math.abs(eliteSpawnRate - 0.15) < 0.01) {
+                lowEliteBtn.setSelected(true);
+            } else if (Math.abs(eliteSpawnRate - 0.2) < 0.01) {
+                mediumEliteBtn.setSelected(true);
+            } else if (Math.abs(eliteSpawnRate - 0.25) < 0.01) {
+                highEliteBtn.setSelected(true);
+            } else {
+                mediumEliteBtn.setSelected(true);
+            }
+        } else {
+            mediumEliteBtn.setSelected(true);
+        }
+        
+        lowEliteBtn.setOnAction(e -> eliteSpawnRate = 0.15);
+        mediumEliteBtn.setOnAction(e -> eliteSpawnRate = 0.2);
+        highEliteBtn.setOnAction(e -> eliteSpawnRate = 0.25);
+        
+        HBox eliteRateBox = new HBox(5, eliteRateLabel, lowEliteBtn, mediumEliteBtn, highEliteBtn);
+        eliteRateBox.setAlignment(Pos.CENTER_LEFT);
+        
         // 清除按钮
         Button clearBtn = new Button("清除所有");
         clearBtn.setOnAction(e -> {
@@ -260,7 +330,9 @@ public class LevelEditor {
             }
         });
         
-        toolbar.getChildren().addAll(sizeBox, new Separator(), obstacleBox, new Separator(), clearBtn, saveBtn, backBtn);
+        toolbar.getChildren().addAll(sizeBox, new Separator(), obstacleBox, new Separator(), 
+                                    spawnRateBox, new Separator(), eliteRateBox, new Separator(), 
+                                    clearBtn, saveBtn, backBtn);
         
         // 创建地图画布
         mapCanvas = new Canvas(currentMapSize.width, currentMapSize.height);
@@ -772,7 +844,15 @@ public class LevelEditor {
         double baseY = currentMapSize.height - baseSize;
         BaseDefinition base = new BaseDefinition(baseX, baseY);
         
-        return new LevelDefinition(id, name, currentMapSize.width, currentMapSize.height, base, new ArrayList<>(obstacles));
+        // 根据游戏模式设置时间限制
+        Integer timeLimit = null;
+        if (currentMode == GameMode.TIMED) {
+            // 限时模式，可以根据需要设置时间限制
+            timeLimit = 300; // 默认5分钟
+        }
+        
+        return new LevelDefinition(id, name, currentMapSize.width, currentMapSize.height, base, 
+                                  new ArrayList<>(obstacles), timeLimit, enemySpawnInterval, eliteSpawnRate);
     }
     
     /**
@@ -808,6 +888,18 @@ public class LevelEditor {
         // 加载障碍物
         obstacles.clear();
         obstacles.addAll(level.obstacles());
+        
+        // 加载敌人刷新速率和精英怪出现频率
+        enemySpawnInterval = level.enemySpawnInterval();
+        eliteSpawnRate = level.eliteSpawnRate();
+        
+        // 如果值为null，使用默认值
+        if (enemySpawnInterval == null) {
+            enemySpawnInterval = 5.0;
+        }
+        if (eliteSpawnRate == null) {
+            eliteSpawnRate = 0.2;
+        }
     }
     
     /**

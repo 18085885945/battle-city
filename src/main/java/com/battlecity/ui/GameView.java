@@ -80,9 +80,41 @@ public class GameView extends Canvas {
 
         // 绘制玩家坦克
         if (world.playerTank() != null && world.playerTank().alive()) {
-            drawTank(world.playerTank(), Color.GREEN);
+            // 根据武器状态选择颜色
+            Color tankColor = Color.GREEN;
+            if (world.playerTank().isChargingLaser()) {
+                // 蓄力激光时显示颜色闪烁效果
+                double chargeProgress = world.playerTank().getLaserChargeProgress();
+                if (world.playerTank().isMegaLaserEnabled()) {
+                    // 大激光：橙色闪烁
+                    tankColor = Color.rgb(
+                        (int)(255 * chargeProgress),
+                        (int)(165 * chargeProgress),
+                        0
+                    );
+                } else {
+                    // 普通激光：红色闪烁
+                    tankColor = Color.rgb(
+                        (int)(255 * chargeProgress),
+                        (int)(255 * (1 - chargeProgress)),
+                        0
+                    );
+                }
+            } else if (world.playerTank().isScatterShotActive()) {
+                // 散射子弹激活时显示蓝色
+                tankColor = Color.CYAN;
+            } else if (world.playerTank().isHovercraftActive()) {
+                // 气垫激活时显示浅蓝色
+                tankColor = Color.LIGHTBLUE;
+            }
+            drawTank(world.playerTank(), tankColor);
             // 如果玩家坦克在草丛中，在坦克上方绘制草丛遮住效果
             drawGrassOverTank(world.playerTank());
+            
+            // 绘制激光蓄力进度条
+            if (world.playerTank().isChargingLaser()) {
+                drawLaserChargeBar(world.playerTank());
+            }
         }
 
         // 绘制敌方坦克
@@ -135,6 +167,13 @@ public class GameView extends Canvas {
         for (Bullet bullet : world.enemyBullets()) {
             if (bullet.alive()) {
                 drawBullet(bullet, Color.ORANGE);
+            }
+        }
+        
+        // 绘制激光
+        for (com.battlecity.model.projectile.Laser laser : world.lasers()) {
+            if (laser.alive()) {
+                drawLaser(laser);
             }
         }
         
@@ -208,6 +247,18 @@ public class GameView extends Canvas {
             case FREEZE:
                 color = Color.LIGHTBLUE;
                 break;
+            case LASER:
+                color = Color.RED;
+                break;
+            case SCATTER_SHOT:
+                color = Color.CYAN;
+                break;
+            case HOVERCRAFT:
+                color = Color.LIGHTBLUE;
+                break;
+            case AIRSTRIKE:
+                color = Color.DARKRED;
+                break;
             default:
                 color = Color.WHITE;
         }
@@ -244,6 +295,18 @@ public class GameView extends Canvas {
             case FREEZE:
                 icon = "F";
                 break;
+            case LASER:
+                icon = "L";
+                break;
+            case SCATTER_SHOT:
+                icon = "2";
+                break;
+            case HOVERCRAFT:
+                icon = "H";
+                break;
+            case AIRSTRIKE:
+                icon = "A";
+                break;
             default:
                 icon = "?";
         }
@@ -251,7 +314,7 @@ public class GameView extends Canvas {
     }
     
     /**
-     * 绘制当前激活的道具效果
+     * 绘制当前激活的道具效果和武器状态
      */
     private void drawPowerUpEffects() {
         if (world.playerTank() == null || !world.playerTank().alive()) {
@@ -260,7 +323,20 @@ public class GameView extends Canvas {
         
         // 获取当前激活的道具效果
         java.util.List<com.battlecity.model.powerup.PowerUpEffect> effects = world.playerTank().getActiveEffects();
-        if (effects.isEmpty()) {
+        
+        // 计算需要显示的项目数量（包括武器状态）
+        int itemCount = effects.size();
+        if (world.playerTank().getLaserAmmo() > 0) {
+            itemCount++; // 激光武器
+        }
+        if (world.playerTank().isScatterShotActive()) {
+            itemCount++; // 散射子弹
+        }
+        if (world.playerTank().isHovercraftActive()) {
+            itemCount++; // 气垫（如果不在effects中，单独显示）
+        }
+        
+        if (itemCount == 0) {
             return;
         }
         
@@ -270,41 +346,122 @@ public class GameView extends Canvas {
         double height = 30;
         
         gc.setFill(Color.rgb(0, 0, 0, 0.7));
-        gc.fillRect(x - 5, y - 5, 140, effects.size() * height + 10);
+        gc.fillRect(x - 5, y - 5, 140, itemCount * height + 10);
         
         gc.setStroke(Color.WHITE);
         gc.setLineWidth(1);
-        gc.strokeRect(x - 5, y - 5, 140, effects.size() * height + 10);
+        gc.strokeRect(x - 5, y - 5, 140, itemCount * height + 10);
         
         gc.setFont(javafx.scene.text.Font.font(12));
         
+        int currentIndex = 0;
+        
+        // 绘制武器状态
+        boolean hasLaser = world.playerTank().getLaserAmmo() > 0;
+        boolean hasScatterShot = world.playerTank().isScatterShotActive();
+        boolean hasComboEffect = hasLaser && hasScatterShot;
+        
+        if (hasComboEffect) {
+            // 组合效果：显示组合提示
+            double effectY = y + currentIndex * height;
+            gc.setFill(Color.ORANGE);
+            gc.fillText("组合效果：双激光 x" + world.playerTank().getLaserAmmo(), x, effectY + 15);
+            currentIndex++;
+            
+            // 显示散射子弹剩余时间（作为组合效果的一部分）
+            double remainingTime = 0;
+            for (com.battlecity.model.powerup.PowerUpEffect effect : effects) {
+                if (effect.getType() == com.battlecity.model.powerup.PowerUpType.SCATTER_SHOT) {
+                    remainingTime = effect.getRemainingTime();
+                    break;
+                }
+            }
+            gc.setFill(Color.ORANGE);
+            gc.fillText(String.format("  (散射效果剩余 %.1fs)", remainingTime), x, effectY + 30);
+            currentIndex++;
+        } else {
+            // 单独显示
+            if (hasLaser) {
+                double effectY = y + currentIndex * height;
+                // 检查是否启用大激光
+                if (world.playerTank().isMegaLaserEnabled()) {
+                    gc.setFill(Color.ORANGE);
+                    gc.fillText("大激光 x" + world.playerTank().getLaserAmmo(), x, effectY + 15);
+                } else {
+                    gc.setFill(Color.RED);
+                    gc.fillText("激光武器 x" + world.playerTank().getLaserAmmo(), x, effectY + 15);
+                }
+                currentIndex++;
+            }
+            
+            if (hasScatterShot) {
+                double effectY = y + currentIndex * height;
+                // 查找散射子弹效果的剩余时间
+                double remainingTime = 0;
+                for (com.battlecity.model.powerup.PowerUpEffect effect : effects) {
+                    if (effect.getType() == com.battlecity.model.powerup.PowerUpType.SCATTER_SHOT) {
+                        remainingTime = effect.getRemainingTime();
+                        break;
+                    }
+                }
+                gc.setFill(Color.CYAN);
+                gc.fillText(String.format("散射子弹 %.1fs", remainingTime), x, effectY + 15);
+                currentIndex++;
+            }
+            
+            // 显示气垫状态
+            if (world.playerTank().isHovercraftActive()) {
+                double effectY = y + currentIndex * height;
+                // 查找气垫效果的剩余时间
+                double remainingTime = 0;
+                for (com.battlecity.model.powerup.PowerUpEffect effect : effects) {
+                    if (effect.getType() == com.battlecity.model.powerup.PowerUpType.HOVERCRAFT) {
+                        remainingTime = effect.getRemainingTime();
+                        break;
+                    }
+                }
+                gc.setFill(Color.LIGHTBLUE);
+                gc.fillText(String.format("气垫 %.1fs", remainingTime), x, effectY + 15);
+                currentIndex++;
+            }
+        }
+        
+        // 绘制其他道具效果
         for (int i = 0; i < effects.size(); i++) {
             com.battlecity.model.powerup.PowerUpEffect effect = effects.get(i);
-            double effectY = y + i * height;
+            // 跳过散射子弹和气垫效果（已单独显示）
+            if (effect.getType() == com.battlecity.model.powerup.PowerUpType.SCATTER_SHOT ||
+                effect.getType() == com.battlecity.model.powerup.PowerUpType.HOVERCRAFT) {
+                continue;
+            }
+            double effectY = y + currentIndex * height;
             
             // 绘制效果类型
             String effectName;
             switch (effect.getType()) {
                 case BULLET_SPEED:
-                    effectName = "Bullet Speed";
+                    effectName = "子弹速度";
                     break;
                 case BULLET_PENETRATION:
-                    effectName = "Penetration";
+                    effectName = "子弹穿透";
                     break;
                 case ONE_SHOT:
-                    effectName = "One Shot";
+                    effectName = "秒杀模式";
                     break;
                 case TANK_SPEED:
-                    effectName = "Tank Speed";
+                    effectName = "坦克速度";
                     break;
                 case HEALTH_RESTORE:
-                    effectName = "Health";
+                    effectName = "生命恢复";
                     break;
                 case FREEZE:
-                    effectName = "Freeze";
+                    effectName = "冻结";
+                    break;
+                case HOVERCRAFT:
+                    effectName = "气垫";
                     break;
                 default:
-                    effectName = "Unknown";
+                    effectName = "未知";
             }
             
             // 绘制效果名称和剩余时间
@@ -325,6 +482,8 @@ public class GameView extends Canvas {
             int remainingSeconds = (int) Math.ceil(effect.getRemainingTime());
             gc.setFill(Color.WHITE);
             gc.fillText(remainingSeconds + "s", x + 110, effectY + 15);
+            
+            currentIndex++;
         }
     }
 
@@ -682,6 +841,55 @@ public class GameView extends Canvas {
             double[] yPoints = {centerY, centerY - arrowSize, centerY + arrowSize};
             gc.fillPolygon(xPoints, yPoints, 3);
         }
+    }
+    
+    /**
+     * 绘制激光
+     */
+    private void drawLaser(com.battlecity.model.projectile.Laser laser) {
+        Vector2D startPoint = laser.startPoint();
+        Vector2D endPoint = laser.endPoint();
+        
+        // 根据是否为大激光选择宽度和颜色
+        double laserWidth = laser.isMegaLaser() ? 32.0 : 16.0; // 大激光两个砖块宽，普通激光一个砖块宽
+        Color laserColor = laser.isMegaLaser() ? Color.ORANGE : Color.RED; // 大激光橙色，普通激光红色
+        
+        // 绘制激光光束
+        gc.setStroke(laserColor);
+        gc.setLineWidth(laserWidth);
+        gc.setLineCap(javafx.scene.shape.StrokeLineCap.ROUND);
+        gc.setGlobalAlpha(0.8);
+        gc.strokeLine(startPoint.x(), startPoint.y(), endPoint.x(), endPoint.y());
+        gc.setGlobalAlpha(1.0);
+        
+        // 绘制激光核心（更亮的中心线）
+        gc.setStroke(Color.YELLOW);
+        gc.setLineWidth(laser.isMegaLaser() ? 8 : 4); // 大激光核心更粗
+        gc.strokeLine(startPoint.x(), startPoint.y(), endPoint.x(), endPoint.y());
+    }
+    
+    /**
+     * 绘制激光蓄力进度条
+     */
+    private void drawLaserChargeBar(com.battlecity.model.tank.PlayerTank playerTank) {
+        double progress = playerTank.getLaserChargeProgress();
+        double x = playerTank.left();
+        double y = playerTank.top() - 20; // 在坦克上方
+        double width = playerTank.size().width();
+        double height = 4;
+        
+        // 背景
+        gc.setFill(Color.DARKGRAY);
+        gc.fillRect(x, y, width, height);
+        
+        // 进度条
+        gc.setFill(Color.RED);
+        gc.fillRect(x, y, width * progress, height);
+        
+        // 边框
+        gc.setStroke(Color.WHITE);
+        gc.setLineWidth(1);
+        gc.strokeRect(x, y, width, height);
     }
     
     private void drawExplosion(ExplosionEffect effect) {
