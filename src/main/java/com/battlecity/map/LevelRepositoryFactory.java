@@ -1,8 +1,6 @@
 package com.battlecity.map;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 
 public final class LevelRepositoryFactory {
@@ -10,18 +8,49 @@ public final class LevelRepositoryFactory {
     private LevelRepositoryFactory() {
     }
 
-    public static LevelRepository fromClasspath(Path levelsDir) {
+    /**
+     * 从类路径加载所有关卡文件
+     * @param levelsDir 类路径资源目录，如 "/levels"
+     * @return LevelRepository 实例
+     */
+    public static LevelRepository fromClasspath(String levelsDir) {
         LevelLoader loader = new LevelLoader();
-        try {
-            List<LevelDefinition> levels = Files.list(levelsDir)
-                    .filter(Files::isRegularFile)
-                    .filter(path -> path.getFileName().toString().endsWith(".json"))
-                    .map(loader::load)
-                    .toList();
-            return buildRepository(levels);
-        } catch (IOException e) {
-            throw new IllegalStateException("无法读取关卡目录: " + levelsDir, e);
+        List<LevelDefinition> levels = new ArrayList<>();
+        
+        // 列出所有关卡文件（由于JAR中无法直接列出目录，使用硬编码列表）
+        String[] levelFiles = {
+            "classic-level-1.json",
+            "classic-level-2.json",
+            "classic-level-3.json",
+            "classic-level-4.json",
+            "classic-level-5.json",
+            "endless-1.json",
+            "endless-prototype.json",
+            "timed-1.json",
+            "timed-2.json",
+            "timed-3.json",
+            "timed-4.json",
+            "timed-5.json",
+            "timed-challenge.json"
+        };
+        
+        // 加载所有存在的关卡文件（某些文件可能不存在，忽略即可）
+        for (String fileName : levelFiles) {
+            String resourcePath = levelsDir + "/" + fileName;
+            try {
+                LevelDefinition level = loader.loadFromClasspath(resourcePath);
+                levels.add(level);
+            } catch (IllegalStateException e) {
+                // 如果文件不存在，跳过
+                System.err.println("警告: 跳过不存在的关卡文件: " + resourcePath);
+            }
         }
+        
+        if (levels.isEmpty()) {
+            throw new IllegalStateException("未找到任何关卡文件，请检查资源目录: " + levelsDir);
+        }
+        
+        return buildRepository(levels);
     }
 
     private record SimpleLevelRepository(

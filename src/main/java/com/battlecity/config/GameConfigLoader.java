@@ -6,8 +6,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
@@ -19,8 +17,16 @@ public class GameConfigLoader {
 
     private final ObjectMapper mapper = new ObjectMapper();
 
-    public GameConfig load(Path path) {
-        try (InputStream in = Files.newInputStream(path)) {
+    /**
+     * 从类路径加载配置文件
+     * @param resourcePath 类路径资源路径，如 "/config/game-config.json"
+     * @return GameConfig 实例
+     */
+    public GameConfig load(String resourcePath) {
+        try (InputStream in = GameConfigLoader.class.getResourceAsStream(resourcePath)) {
+            if (in == null) {
+                throw new IllegalStateException("找不到配置文件: " + resourcePath);
+            }
             RawGameConfig raw = mapper.readValue(in, RawGameConfig.class);
             Map<GameModeType, ModeConfig> mappedModes = new EnumMap<>(GameModeType.class);
             raw.modeConfigs().forEach((key, value) -> mappedModes.put(GameModeType.valueOf(key), value));
@@ -33,7 +39,7 @@ public class GameConfigLoader {
                     raw.enemyWaves()
             );
         } catch (IOException e) {
-            throw new IllegalStateException("加载配置失败: " + path, e);
+            throw new IllegalStateException("加载配置失败: " + resourcePath, e);
         }
     }
 

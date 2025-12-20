@@ -103,12 +103,16 @@
                 </configuration>
             </plugin>
             
-            <!-- 添加jpackage插件，用于生成原生安装包 -->
+            <!-- GraalVM Native Image插件（可选，用于创建原生可执行文件） -->
             <plugin>
                 <groupId>org.graalvm.buildtools</groupId>
                 <artifactId>native-maven-plugin</artifactId>
                 <version>0.10.2</version>
             </plugin>
+            
+            <!-- jpackage插件配置（用于创建Windows安装程序） -->
+            <!-- 注意：jpackage是JDK 14+自带的工具，不需要Maven插件 -->
+            <!-- 可以直接使用命令行：jpackage -input target -name "Battle City" -main-jar battle-city.jar -main-class com.battlecity.Launcher -type exe -->
             
             <!-- Maven Assembly Plugin，用于创建包含所有依赖的可执行jar -->
             <plugin>
