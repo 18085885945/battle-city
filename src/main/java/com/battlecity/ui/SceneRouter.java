@@ -22,6 +22,8 @@ import javafx.scene.layout.VBox;
 import javafx.scene.layout.Priority;
 import javafx.scene.control.ScrollPane;
 import javafx.scene.control.Separator;
+import javafx.scene.control.Alert;
+import javafx.scene.control.ButtonType;
 import javafx.stage.Stage;
 import java.util.function.Consumer;
 import java.util.List;
@@ -940,8 +942,118 @@ public class SceneRouter implements SceneRouterFacade {
 
             Label meta = new Label(level.width() + " x " + level.height());
             meta.setStyle("-fx-text-fill: #ccc;");
+            
+            // 添加修改按钮
+            Button editBtn = new Button("修改");
+            editBtn.setPrefWidth(40); // 设置宽度为原来的一半
+            editBtn.setOnAction(e -> {
+                // 打开地图编辑器并加载该关卡
+                LevelEditor editor = new LevelEditor();
+                // 设置最大化回调
+                editor.setMaximizeCallback(shouldMaximize -> {
+                    if (primaryStage != null) {
+                        primaryStage.setMaximized(shouldMaximize);
+                    }
+                });
+                // 设置保存回调，保存后刷新选关界面
+                editor.setOnSaveCallback(() -> {
+                    // 保存成功后，刷新选关界面
+                });
+                
+                // 根据关卡ID判断游戏模式
+                LevelEditor.GameMode editorMode = LevelEditor.GameMode.CUSTOM;
+                String id = level.id();
+                if (id != null) {
+                    if (id.startsWith("classic-") || id.startsWith("classic_level-")) {
+                        editorMode = LevelEditor.GameMode.CLASSIC;
+                    } else if (id.startsWith("endless-")) {
+                        editorMode = LevelEditor.GameMode.ENDLESS;
+                    } else if (id.startsWith("timed-") || id.startsWith("timed_challenge")) {
+                        editorMode = LevelEditor.GameMode.TIMED;
+                    }
+                }
+                
+                // 构建编辑器场景，加载现有地图
+                Scene editorScene = editor.buildEditorScene(() -> {
+                    // 返回自由选关界面，取消最大化
+                    if (primaryStage != null) {
+                        primaryStage.setMaximized(false);
+                    }
+                    Scene selectScene = buildLevelSelectScene(engine);
+                    if (sceneChangeCallback != null) {
+                        sceneChangeCallback.accept(selectScene);
+                    }
+                }, (updatedScene) -> {
+                    // 地图大小改变时更新窗口
+                    if (sceneChangeCallback != null) {
+                        sceneChangeCallback.accept(updatedScene);
+                    }
+                }, editorMode, level);
+                
+                // 触发场景切换
+                if (sceneChangeCallback != null) {
+                    sceneChangeCallback.accept(editorScene);
+                }
+            });
+            
+            // 添加删除按钮
+            Button deleteBtn = new Button("删除");
+            deleteBtn.setPrefWidth(40); // 设置宽度为原来的一半
+            deleteBtn.setStyle("-fx-background-color: #d32f2f; -fx-text-fill: white;");
+            deleteBtn.setOnAction(e -> {
+                // 弹出确认对话框
+                Alert confirmAlert = new Alert(Alert.AlertType.CONFIRMATION);
+                confirmAlert.setTitle("确认删除");
+                confirmAlert.setHeaderText("删除地图");
+                confirmAlert.setContentText("确定要删除地图 \"" + level.name() + "\" 吗？\n此操作无法撤销。");
+                
+                confirmAlert.showAndWait().ifPresent(buttonType -> {
+                    if (buttonType == ButtonType.OK) {
+                        // 确认删除
+                        try {
+                            // 获取关卡文件路径
+                            Path levelsDir = ResourceLocator.levelsDirectory();
+                            String fileName = level.id() + ".json";
+                            Path filePath = levelsDir.resolve(fileName);
+                            
+                            // 删除文件
+                            if (Files.exists(filePath)) {
+                                Files.delete(filePath);
+                                
+                                // 显示成功提示
+                                Alert successAlert = new Alert(Alert.AlertType.INFORMATION);
+                                successAlert.setTitle("删除成功");
+                                successAlert.setHeaderText(null);
+                                successAlert.setContentText("地图 \"" + level.name() + "\" 已成功删除。");
+                                successAlert.showAndWait();
+                                
+                                // 刷新选关界面
+                                Scene selectScene = buildLevelSelectScene(engine);
+                                if (sceneChangeCallback != null) {
+                                    sceneChangeCallback.accept(selectScene);
+                                }
+                            } else {
+                                // 文件不存在
+                                Alert errorAlert = new Alert(Alert.AlertType.ERROR);
+                                errorAlert.setTitle("删除失败");
+                                errorAlert.setHeaderText(null);
+                                errorAlert.setContentText("找不到地图文件: " + filePath);
+                                errorAlert.showAndWait();
+                            }
+                        } catch (Exception ex) {
+                            // 删除失败
+                            Alert errorAlert = new Alert(Alert.AlertType.ERROR);
+                            errorAlert.setTitle("删除失败");
+                            errorAlert.setHeaderText(null);
+                            errorAlert.setContentText("删除地图时发生错误: " + ex.getMessage());
+                            errorAlert.showAndWait();
+                            ex.printStackTrace();
+                        }
+                    }
+                });
+            });
 
-            HBox row = new HBox(10, levelBtn, meta);
+            HBox row = new HBox(10, levelBtn, meta, editBtn, deleteBtn);
             row.setAlignment(Pos.CENTER_LEFT);
             HBox.setHgrow(levelBtn, Priority.ALWAYS);
             listBox.getChildren().add(row);

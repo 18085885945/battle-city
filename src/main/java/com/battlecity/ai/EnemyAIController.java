@@ -456,6 +456,13 @@ public class EnemyAIController {
                 // 移动到当前路径点
                 moveTowards(world, enemy, nextWaypoint, deltaSeconds);
             }
+        } else {
+            // 如果路径查找失败（返回空列表），使用备用方案：直接向基地方向移动
+            // 这样可以确保AI精英怪至少会尝试移动，即使路径查找失败
+            double distanceToBase = enemyCenter.subtract(baseCenter).length();
+            if (distanceToBase > 20) { // 只有当距离足够远时才移动
+                moveTowards(world, enemy, baseCenter, deltaSeconds);
+            }
         }
         
         // 如果接近基地，尝试攻击
@@ -864,6 +871,19 @@ public class EnemyAIController {
         Vector2D currentCenter = enemy.center();
         double tankSize = enemy.size().width();
         
+        // 获取AI状态，检查避免无限递归
+        EnemyAIState state = tankStates.get(enemy);
+        if (state == null) {
+            state = new EnemyAIState();
+            tankStates.put(enemy, state);
+        }
+        
+        // 防止无限递归：如果尝试次数过多，直接返回false
+        if (state.avoidanceAttempts > 5) {
+            state.avoidanceAttempts = 0;
+            return false;
+        }
+        
         // 计算移动后的位置
         com.battlecity.model.tank.TankAttributes attrs = enemy.attributes();
         double moveDistance = attrs.speed() * deltaSeconds;
@@ -891,29 +911,79 @@ public class EnemyAIController {
                     double dx = Math.abs(toObstacle.x());
                     double dy = Math.abs(toObstacle.y());
                     
-                    // 如果坦克与障碍物在同一水平或垂直线上（误差5像素内），可以直接开火
+                    // 如果坦克与障碍物在同一水平或垂直线上（误差5像素内）
                     if (dx < 5 || dy < 5) {
-                        tryAttack(world, enemy, obstacleCenter);
+                        // 检测前方是否有连续的砖块行
+                        Vector2D attackTarget = detectConsecutiveBricks(world, enemy, 
+                            (com.battlecity.model.world.BrickWall) obstacle, dirX, dirY);
+                        if (attackTarget != null) {
+                            // 攻击连续砖块的中间位置
+                            tryAttack(world, enemy, attackTarget);
+                        } else {
+                            // 攻击单个砖块
+                            tryAttack(world, enemy, obstacleCenter);
+                        }
+                        state.avoidanceAttempts = 0; // 重置尝试次数
                         return true; // 已处理（开火），不移动
                     } else {
                         // 无法直接命中，需要调整位置
-                        // 尝试移动到可以命中的位置（优先选择距离较近的方向）
-                        Vector2D adjustTarget = null;
+                        // 直接计算调整方向并移动，避免递归调用moveTowards
+                        int adjustDirX = 0;
+                        int adjustDirY = 0;
                         if (dx < dy) {
                             // 水平方向更近，调整到同一水平线
-                            adjustTarget = new Vector2D(obstacleCenter.x(), currentCenter.y());
+                            adjustDirX = toObstacle.x() > 0 ? 1 : -1;
                         } else {
                             // 垂直方向更近，调整到同一垂直线
-                            adjustTarget = new Vector2D(currentCenter.x(), obstacleCenter.y());
+                            adjustDirY = toObstacle.y() > 0 ? 1 : -1;
                         }
                         
-                        // 使用moveTowards调整位置（这会自动拆成两段直线）
-                        moveTowards(world, enemy, adjustTarget, deltaSeconds);
-                        return true; // 已处理（调整位置），不继续原方向移动
+                        // 检查调整方向是否有障碍物，如果没有则移动
+                        // 注意：这里直接移动而不调用moveTowards，避免递归
+                        if (adjustDirX != 0 || adjustDirY != 0) {
+                            Vector2D adjustNextPos = new Vector2D(
+                                currentPos.x() + adjustDirX * attrs.speed() * deltaSeconds,
+                                currentPos.y() + adjustDirY * attrs.speed() * deltaSeconds
+                            );
+                            EnemyTank adjustTestTank = EnemyTankFactory.create(adjustNextPos, enemy.tier(), attrs);
+                            boolean canAdjust = true;
+                            for (com.battlecity.model.world.Obstacle obs : world.obstacles()) {
+                                if (world.collisionDetector().collide(adjustTestTank, obs)) {
+                                    canAdjust = false;
+                                    break;
+                                }
+                            }
+                            if (canAdjust && !world.collisionDetector().collide(adjustTestTank, world.base())) {
+                                // 可以调整，直接移动（避免递归调用moveTowards）
+                                if (adjustDirX > 0) {
+                                    enemy.moveRight(deltaSeconds);
+                                } else if (adjustDirX < 0) {
+                                    enemy.moveLeft(deltaSeconds);
+                                } else if (adjustDirY > 0) {
+                                    enemy.moveDown(deltaSeconds);
+                                } else if (adjustDirY < 0) {
+                                    enemy.moveUp(deltaSeconds);
+                                }
+                                state.avoidanceAttempts = 0; // 重置尝试次数
+                                return true; // 已处理（调整位置），不继续原方向移动
+                            }
+                        }
+                        // 如果无法调整位置，尝试开火破坏障碍物
+                        tryAttack(world, enemy, obstacleCenter);
+                        state.avoidanceAttempts = 0; // 重置尝试次数
+                        return true; // 已处理（开火），不继续原方向移动
                     }
                 } else if (obstacle instanceof com.battlecity.model.world.SteelWall) {
-                    // 不可破坏的障碍物，需要绕过
-                    return false; // 返回false，让调用者知道需要绕过
+                    // 不可破坏的障碍物（钢墙），需要绕过
+                    // 尝试向左右或后方移动，然后重新计算路径
+                    boolean avoiding = tryAvoidObstacle(world, enemy, obstacle, dirX, dirY, deltaSeconds);
+                    if (avoiding) {
+                        // 正在绕过，返回true表示已处理
+                        return true;
+                    } else {
+                        // 无法绕过或绕过完成，返回false让上层逻辑重新计算路径
+                        return false;
+                    }
                 } else if (obstacle instanceof com.battlecity.model.world.River) {
                     // 河流，可以穿过，继续移动
                     continue;
@@ -927,6 +997,7 @@ public class EnemyAIController {
         }
         
         // 没有障碍物，可以移动
+        state.avoidanceAttempts = 0; // 重置尝试次数
         if (dirX > 0) {
             enemy.moveRight(deltaSeconds);
         } else if (dirX < 0) {
@@ -990,6 +1061,258 @@ public class EnemyAIController {
         Optional<Bullet> bulletOpt = enemy.tryFireInternal();
         if (bulletOpt.isPresent()) {
             world.addEnemyBullet(bulletOpt.get());
+        }
+    }
+    
+    /**
+     * 检测前方是否有连续的砖块行，如果有则返回中间位置用于同时破坏两个砖块
+     * @param world 游戏世界
+     * @param enemy 敌方坦克
+     * @param firstBrick 第一个砖块
+     * @param dirX 移动方向x
+     * @param dirY 移动方向y
+     * @return 如果有连续砖块，返回中间位置；否则返回null
+     */
+    private Vector2D detectConsecutiveBricks(GameWorld world, EnemyTank enemy, 
+                                              com.battlecity.model.world.BrickWall firstBrick, 
+                                              int dirX, int dirY) {
+        Vector2D firstBrickPos = firstBrick.position();
+        double brickSize = firstBrick.size().width(); // 砖块大小（16x16）
+        Vector2D enemyCenter = enemy.center();
+        
+        // 确定检查方向（与移动方向垂直的方向）
+        // 如果水平移动，检查垂直方向的连续砖块；如果垂直移动，检查水平方向的连续砖块
+        boolean checkHorizontal = (dirY != 0); // 垂直移动时检查水平方向
+        boolean checkVertical = (dirX != 0);   // 水平移动时检查垂直方向
+        
+        // 检查连续砖块（最多检查3个砖块，即2个连续砖块）
+        int consecutiveCount = 1;
+        Vector2D lastBrickPos = firstBrickPos;
+        
+        for (int i = 1; i <= 2; i++) {
+            Vector2D checkPos;
+            if (checkHorizontal) {
+                // 检查左右方向
+                // 先检查右侧
+                checkPos = new Vector2D(firstBrickPos.x() + i * brickSize, firstBrickPos.y());
+            } else {
+                // 检查上下方向
+                // 先检查下方
+                checkPos = new Vector2D(firstBrickPos.x(), firstBrickPos.y() + i * brickSize);
+            }
+            
+            // 检查该位置是否有砖块
+            boolean foundBrick = false;
+            for (com.battlecity.model.world.Obstacle obs : world.obstacles()) {
+                if (obs instanceof com.battlecity.model.world.BrickWall) {
+                    Vector2D obsPos = obs.position();
+                    // 检查位置是否匹配（允许1像素误差）
+                    if (Math.abs(obsPos.x() - checkPos.x()) < 1 && 
+                        Math.abs(obsPos.y() - checkPos.y()) < 1) {
+                        consecutiveCount++;
+                        lastBrickPos = obsPos;
+                        foundBrick = true;
+                        break;
+                    }
+                }
+            }
+            
+            if (!foundBrick) {
+                break;
+            }
+        }
+        
+        // 如果有2个或更多连续砖块，返回中间位置
+        if (consecutiveCount >= 2) {
+            Vector2D middlePos = new Vector2D(
+                (firstBrickPos.x() + lastBrickPos.x() + brickSize) / 2.0,
+                (firstBrickPos.y() + lastBrickPos.y() + brickSize) / 2.0
+            );
+            return middlePos;
+        }
+        
+        return null; // 没有连续砖块
+    }
+    
+    /**
+     * 尝试绕过不可破坏的障碍物（钢墙）
+     * 策略：尝试向左右或后方移动，然后重新计算路径
+     * @param world 游戏世界
+     * @param enemy 敌方坦克
+     * @param obstacle 障碍物
+     * @param dirX 原移动方向x
+     * @param dirY 原移动方向y
+     * @param deltaSeconds 时间增量
+     * @return 如果成功绕过返回true，否则返回false
+     */
+    private boolean tryAvoidObstacle(GameWorld world, EnemyTank enemy, 
+                                    com.battlecity.model.world.Obstacle obstacle,
+                                    int dirX, int dirY, double deltaSeconds) {
+        EnemyAIState state = tankStates.get(enemy);
+        if (state == null) {
+            state = new EnemyAIState();
+            tankStates.put(enemy, state);
+        }
+        
+        // 防止无限递归
+        state.avoidanceAttempts++;
+        if (state.avoidanceAttempts > 5) {
+            state.avoidanceAttempts = 0;
+            return false;
+        }
+        
+        // 更新绕过障碍物计时器
+        state.obstacleAvoidanceTimer += deltaSeconds;
+        if (state.obstacleAvoidanceTimer > 3.0) {
+            // 3秒后重置，避免一直卡住
+            state.obstacleAvoidanceTimer = 0.0;
+            state.avoidanceAttempts = 0;
+            state.obstacleAvoidanceTarget = null;
+            return false;
+        }
+        
+        Vector2D currentCenter = enemy.center();
+        Vector2D obstacleCenter = new Vector2D(
+            obstacle.position().x() + obstacle.size().width() / 2.0,
+            obstacle.position().y() + obstacle.size().height() / 2.0
+        );
+        
+        // 如果还没有设置绕过目标，计算绕过方向
+        if (state.obstacleAvoidanceTarget == null) {
+            // 计算绕过方向：优先左右，然后后方
+            Vector2D toObstacle = obstacleCenter.subtract(currentCenter);
+            double dx = toObstacle.x();
+            double dy = toObstacle.y();
+            
+            // 确定原移动方向
+            boolean movingHorizontally = (dirX != 0);
+            boolean movingVertically = (dirY != 0);
+            
+            // 尝试绕过方向：左右优先，然后后方
+            Vector2D[] avoidDirections = new Vector2D[3];
+            if (movingHorizontally) {
+                // 水平移动时，尝试上下（垂直方向）绕过
+                avoidDirections[0] = new Vector2D(0, -1); // 上
+                avoidDirections[1] = new Vector2D(0, 1);  // 下
+                avoidDirections[2] = new Vector2D(-dirX, 0); // 后方（反向）
+            } else if (movingVertically) {
+                // 垂直移动时，尝试左右（水平方向）绕过
+                avoidDirections[0] = new Vector2D(1, 0);   // 右
+                avoidDirections[1] = new Vector2D(-1, 0);   // 左
+                avoidDirections[2] = new Vector2D(0, -dirY); // 后方（反向）
+            } else {
+                // 默认情况
+                avoidDirections[0] = new Vector2D(1, 0);   // 右
+                avoidDirections[1] = new Vector2D(-1, 0);   // 左
+                avoidDirections[2] = new Vector2D(0, 1);    // 下
+            }
+            
+            // 尝试每个绕过方向
+            com.battlecity.model.tank.TankAttributes attrs = enemy.attributes();
+            double avoidDistance = 50.0; // 绕过距离：50像素
+            
+            for (Vector2D avoidDir : avoidDirections) {
+                Vector2D avoidTarget = new Vector2D(
+                    currentCenter.x() + avoidDir.x() * avoidDistance,
+                    currentCenter.y() + avoidDir.y() * avoidDistance
+                );
+                
+                // 检查绕过目标位置是否可行（没有障碍物）
+                Vector2D avoidPos = new Vector2D(
+                    avoidTarget.x() - enemy.size().width() / 2.0,
+                    avoidTarget.y() - enemy.size().height() / 2.0
+                );
+                EnemyTank testTank = EnemyTankFactory.create(avoidPos, enemy.tier(), attrs);
+                
+                boolean canAvoid = true;
+                for (com.battlecity.model.world.Obstacle obs : world.obstacles()) {
+                    if (world.collisionDetector().collide(testTank, obs)) {
+                        canAvoid = false;
+                        break;
+                    }
+                }
+                
+                if (canAvoid && !world.collisionDetector().collide(testTank, world.base())) {
+                    // 可以绕过，设置绕过目标
+                    state.obstacleAvoidanceTarget = avoidTarget;
+                    break;
+                }
+            }
+            
+            // 如果所有方向都不可行，返回false
+            if (state.obstacleAvoidanceTarget == null) {
+                state.avoidanceAttempts = 0;
+                return false;
+            }
+        }
+        
+        // 向绕过目标移动
+        Vector2D toAvoidTarget = state.obstacleAvoidanceTarget.subtract(currentCenter);
+        double distanceToAvoid = toAvoidTarget.length();
+        
+        if (distanceToAvoid > 10) {
+            // 还没有到达绕过目标，继续移动
+            int avoidDirX = 0;
+            int avoidDirY = 0;
+            if (Math.abs(toAvoidTarget.x()) > Math.abs(toAvoidTarget.y())) {
+                avoidDirX = toAvoidTarget.x() > 0 ? 1 : -1;
+            } else {
+                avoidDirY = toAvoidTarget.y() > 0 ? 1 : -1;
+            }
+            
+            // 直接移动，避免递归调用checkAndMove
+            boolean moved = false;
+            Vector2D currentPos = enemy.position();
+            com.battlecity.model.tank.TankAttributes attrs = enemy.attributes();
+            Vector2D avoidNextPos = new Vector2D(
+                currentPos.x() + avoidDirX * attrs.speed() * deltaSeconds,
+                currentPos.y() + avoidDirY * attrs.speed() * deltaSeconds
+            );
+            EnemyTank avoidTestTank = EnemyTankFactory.create(avoidNextPos, enemy.tier(), attrs);
+            
+            boolean canMove = true;
+            for (com.battlecity.model.world.Obstacle obs : world.obstacles()) {
+                if (world.collisionDetector().collide(avoidTestTank, obs)) {
+                    // 如果遇到的是同一个障碍物，继续尝试绕过
+                    if (obs == obstacle) {
+                        continue;
+                    }
+                    canMove = false;
+                    break;
+                }
+            }
+            
+            if (canMove && !world.collisionDetector().collide(avoidTestTank, world.base())) {
+                // 可以移动
+                if (avoidDirX > 0) {
+                    enemy.moveRight(deltaSeconds);
+                } else if (avoidDirX < 0) {
+                    enemy.moveLeft(deltaSeconds);
+                } else if (avoidDirY > 0) {
+                    enemy.moveDown(deltaSeconds);
+                } else if (avoidDirY < 0) {
+                    enemy.moveUp(deltaSeconds);
+                }
+                moved = true;
+            }
+            
+            if (moved) {
+                return true; // 正在绕过
+            } else {
+                // 无法移动，清除绕过目标，重新尝试
+                state.obstacleAvoidanceTarget = null;
+                state.avoidanceAttempts++;
+                return false;
+            }
+        } else {
+            // 已到达绕过目标，清除绕过状态，重新计算路径
+            state.obstacleAvoidanceTarget = null;
+            state.obstacleAvoidanceTimer = 0.0;
+            state.avoidanceAttempts = 0;
+            // 清除当前路径，让上层逻辑重新计算
+            state.currentPath = null;
+            state.pathIndex = 0;
+            return false; // 返回false，让上层逻辑重新计算路径
         }
     }
     
